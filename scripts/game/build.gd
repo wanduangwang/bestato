@@ -1,6 +1,7 @@
 extends RefCounted
 
 const Catalog = preload("res://scripts/game/catalog.gd")
+const Balance = preload("res://scripts/game/balance.gd")
 const Stat = Catalog.Stat
 
 enum Action { ORIGIN, STARTER, LOBBY_READY, BUY, LOCK, SHOP_ROLL, COMBINE, RECYCLE,
@@ -10,7 +11,7 @@ var origin := 0
 var starter := 0
 var ready := false
 var revision := 0
-var level := 1
+var level := 0
 var xp := 0
 var materials := 0
 var pending_levels := 0
@@ -54,33 +55,31 @@ func _recalculate() -> void:
 	for family: String in classes:
 		var count: int = classes[family]
 		if count >= 2:
-			var bonus: Array = Catalog.CLASS_BONUSES[family]
-			stats[bonus[0]] += int(bonus[1]) * count
+			var bonus := Catalog.class_bonus(family, count)
+			for stat_id: int in bonus:
+				stats[stat_id] += int(bonus[stat_id])
 	stats[Stat.HP] = maxi(1, stats[Stat.HP])
 	stats[Stat.DODGE] = clampi(stats[Stat.DODGE], 0, 60)
 	stats[Stat.SPEED] = clampi(stats[Stat.SPEED], -65, 90)
 
 
 func xp_goal() -> int:
-	return 5 + 3 * level + floori(level * level * 0.22)
+	return Balance.xp_to_next(level)
 
 
-func catch_up(wave: int) -> void:
-	materials = (wave - 1) * 11
-	level = 1 + floori((wave - 1) * 0.5)
-	values[Stat.HP] += floori((wave - 1) * 0.8)
-	for i in range(1, mini(Catalog.SLOT_COUNT, 1 + floori(wave * 0.25))):
-		weapons.append({"id": starter, "tier": mini(3, 1 + floori(wave / 8.0))})
-	_recalculate()
-
-
-func earn(amount: int) -> void:
+func earn(amount: int) -> int:
 	materials = maxi(0, materials + amount)
 	xp = maxi(0, xp + amount)
+	var before := level
 	while xp >= xp_goal():
 		xp -= xp_goal()
 		level += 1
 		pending_levels += 1
+	var gained := level - before
+	if gained > 0:
+		values[Stat.HP] += gained
+		_recalculate()
+	return gained
 
 
 func finish_wave(wave: int) -> void:
@@ -97,11 +96,11 @@ func finish_wave(wave: int) -> void:
 
 
 func shop_roll_price() -> int:
-	return 3 + floori(_shop_wave * 0.75) + shop_rolls * (2 + floori(_shop_wave * 0.15))
+	return Balance.reroll_cost(_shop_wave, shop_rolls)
 
 
 func upgrade_roll_price() -> int:
-	return 2 + floori(_shop_wave * 0.65) + 2 * upgrade_rolls
+	return Balance.reroll_cost(_shop_wave, upgrade_rolls)
 
 
 func _price(base: int) -> int:
@@ -109,43 +108,41 @@ func _price(base: int) -> int:
 	return maxi(1, floori((base + _shop_wave + base * 0.1 * _shop_wave) * factor))
 
 
-func _roll_tier() -> int:
-	var luck: float = clampf(stats[Stat.LUCK] * 0.0025, -0.10, 0.25)
-	var roll := randf()
-	if _shop_wave >= 9 and roll < (_shop_wave - 8) * 0.008 + luck * 0.35:
-		return 4
-	if _shop_wave >= 5 and roll < (_shop_wave - 4) * 0.017 + luck * 0.60:
-		return 3
-	if _shop_wave >= 2 and roll < _shop_wave * 0.024 + luck:
-		return 2
-	return 1
-
-
-func _weapon_offer() -> Dictionary:
+func _weapon_offer(tier: int, used: Dictionary, previous: Dictionary) -> Dictionary:
 	var all: Array[int] = []
+	var fresh: Array[int] = []
 	var same_weapon: Array[int] = []
 	var same_class: Array[int] = []
 	for id in range(Catalog.WEAPONS.size()):
 		var spec: Dictionary = Catalog.WEAPONS[id]
 		if not Catalog.allows_weapon(origin, id) or _shop_wave < int(spec.get("min_wave", 1)):
 			continue
+		var key := Catalog.offer_key(Catalog.Offer.WEAPON, id, tier)
+		if used.has(key):
+			continue
 		all.append(id)
+		if not previous.has(key):
+			fresh.append(id)
+	var candidates := all if fresh.is_empty() else fresh
+	if candidates.is_empty():
+		return {}
+	for id in candidates:
 		for held in weapons:
 			if held["id"] == id:
 				same_weapon.append(id)
 				break
-		for family: String in spec["families"]:
+		for family: String in Catalog.WEAPONS[id]["families"]:
 			if classes.has(family):
 				same_class.append(id)
 				break
-	var pool := all
+	var pool := candidates
 	var roll := randf()
 	if roll < 0.20 and not same_weapon.is_empty():
 		pool = same_weapon
 	elif roll < 0.35 + maxf(0.0, (6 - _shop_wave) * 0.03) and not same_class.is_empty():
 		pool = same_class
 	var id: int = pool.pick_random()
-	return _priced_weapon(id, _roll_tier())
+	return _priced_weapon(id, tier)
 
 
 func _priced_weapon(id: int, tier: int) -> Dictionary:
@@ -154,36 +151,53 @@ func _priced_weapon(id: int, tier: int) -> Dictionary:
 		"price": _price(roundi(base * Catalog.TIER_DAMAGE[tier - 1])), "locked": false}
 
 
-func _item_offer() -> Dictionary:
-	var id := Catalog.pick_item(_roll_tier(), items)
+func _item_offer(tier: int, used: Dictionary, previous: Dictionary) -> Dictionary:
+	var excluded := used.duplicate()
+	excluded.merge(previous)
+	var id := Catalog.pick_item(tier, items, excluded)
+	if id < 0:
+		id = Catalog.pick_item(tier, items, used)
+	if id < 0:
+		return {}
 	var item: Dictionary = Catalog.ITEMS[id]
 	return {"kind": Catalog.Offer.ITEM, "id": id, "tier": item["tier"],
 		"price": _price(item["price"]), "locked": false}
 
 
 func _roll_shop() -> void:
-	var first_stock := shop.is_empty()
 	shop.resize(4)
+	var previous: Dictionary = {}
+	var used: Dictionary = {}
 	var guarantee := 2 if _shop_wave <= 2 else (1 if _shop_wave <= 5 else 0)
 	for offer in shop:
-		if offer and offer["locked"] and offer["kind"] == Catalog.Offer.WEAPON:
-			guarantee -= 1
+		if offer.is_empty():
+			continue
+		var key := Catalog.offer_key(offer["kind"], offer["id"], offer["tier"])
+		previous[key] = true
+		if offer["locked"]:
+			used[key] = true
+			if offer["kind"] == Catalog.Offer.WEAPON:
+				guarantee -= 1
 	for i in range(4):
 		if shop[i] and shop[i]["locked"]:
-			var offer := shop[i]
-			if offer["kind"] == Catalog.Offer.WEAPON:
-				offer["price"] = _priced_weapon(offer["id"], offer["tier"])["price"]
-			else:
-				offer["price"] = _price(Catalog.ITEMS[offer["id"]]["price"])
 			continue
-		if i == 0 and first_stock and _shop_wave == 1:
-			shop[i] = _priced_weapon(starter, 1)
-			guarantee -= 1
-		elif guarantee > 0 or randf() < 0.35:
-			shop[i] = _weapon_offer()
-			guarantee -= 1
-		else:
-			shop[i] = _item_offer()
+		var tier := Balance.roll_tier(_shop_wave, stats[Stat.LUCK], randf())
+		var is_weapon := guarantee > 0 or (_shop_wave > 2 and randf() < 0.35)
+		var offer := _weapon_offer(tier, used, previous) if is_weapon else _item_offer(tier, used, previous)
+		if offer.is_empty():
+			offer = _item_offer(tier, used, previous) if is_weapon else _weapon_offer(tier, used, previous)
+		shop[i] = offer
+		if not offer.is_empty():
+			used[Catalog.offer_key(offer["kind"], offer["id"], offer["tier"])] = true
+			if offer["kind"] == Catalog.Offer.WEAPON:
+				guarantee -= 1
+
+
+func _shop_has_unlocked_slot() -> bool:
+	for offer in shop:
+		if offer.is_empty() or not offer["locked"]:
+			return true
+	return false
 
 
 func _roll_upgrades() -> void:
@@ -195,10 +209,8 @@ func _roll_upgrades() -> void:
 	var reward_level := level - pending_levels + 1
 	for i in range(4):
 		var stat_id: int = stats_pool[i]
-		var tier := _roll_tier()
-		if reward_level % 5 == 0:
-			tier = maxi(tier, mini(4, reward_level / 5 + 1))
-		upgrades.append({"stat": stat_id, "amount": Catalog.UPGRADE_BASE[stat_id] * tier, "tier": tier})
+		var tier := Balance.upgrade_tier(reward_level, stats[Stat.LUCK], randf())
+		upgrades.append({"stat": stat_id, "amount": Catalog.UPGRADE_VALUES[stat_id][tier - 1], "tier": tier})
 
 
 func apply_shop_action(action: int, slot: int) -> bool:
@@ -235,7 +247,7 @@ func apply_shop_action(action: int, slot: int) -> bool:
 				shop[slot]["locked"] = not shop[slot]["locked"]
 				return true
 		Action.SHOP_ROLL:
-			if materials >= shop_roll_price():
+			if materials >= shop_roll_price() and _shop_has_unlocked_slot():
 				materials -= shop_roll_price()
 				shop_rolls += 1
 				_roll_shop()
@@ -277,6 +289,8 @@ func _buy(slot: int) -> bool:
 		_recalculate()
 	materials -= int(offer["price"])
 	shop[slot] = {}
+	if shop.all(func(entry: Dictionary) -> bool: return entry.is_empty()):
+		_roll_shop()
 	return true
 
 
@@ -320,6 +334,7 @@ func profile(compact: bool) -> Dictionary:
 			"weapons": weapons.duplicate(true), "shop": shop.duplicate(true),
 			"upgrades": upgrades.duplicate(true), "crate": -1 if crates.is_empty() else crates[0],
 			"items": items.duplicate(), "classes": classes.duplicate(), "roll": shop_roll_price(),
+			"can_roll_shop": _shop_has_unlocked_slot(),
 			"upgrade_roll": upgrade_roll_price(),
 		})
 	return data

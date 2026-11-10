@@ -34,9 +34,11 @@ class Projectile extends RefCounted:
 	var owner_id := 0
 	var critical := false
 	var pierce := 0
+	var pierce_damage := 0.72
 	var bounce := 0
 	var burn := 0
 	var blast := 0.0
+	var knockback := 0.0
 	var hit_ids: Dictionary = {}
 
 var waves := Waves.new()
@@ -68,6 +70,7 @@ func _ready() -> void:
 	_view.z_index = 3
 	add_child(_view)
 	Network.hosted.connect(_prepare_host)
+	Network.combat_seats_locked.connect(_on_combat_seats_locked)
 	Network.session_ended.connect(_reset_world)
 	Network.input_received.connect(_record_input)
 	Network.snapshot_received.connect(_receive_snapshot)
@@ -96,6 +99,10 @@ func back_to_menu() -> void:
 
 
 func can_launch() -> bool:
+	return _lobby_ready() and (solo or (not Network.seat_change_pending and not Network.players_locked))
+
+
+func _lobby_ready() -> bool:
 	if waves.phase != Phase.LOBBY:
 		return false
 	return solo or (Network.state == Network.State.HOST and players.size() >= 2
@@ -103,9 +110,21 @@ func can_launch() -> bool:
 
 
 func launch() -> void:
-	if can_launch():
+	if not can_launch():
+		return
+	if solo:
 		_begin_wave()
 		_flush_profiles()
+	else:
+		Network.lock_player_seats(players.keys())
+
+
+func _on_combat_seats_locked() -> void:
+	if _lobby_ready():
+		_begin_wave()
+		_flush_profiles()
+	else:
+		Network.open_player_seats()
 
 
 func cycle_danger() -> void:
@@ -124,6 +143,7 @@ func restart() -> void:
 	waves.danger = danger
 	for peer_id: int in peers:
 		_add_player(peer_id)
+	Network.open_player_seats()
 	_flush_profiles()
 
 
@@ -213,14 +233,12 @@ func _recount_ready() -> void:
 
 
 func _peer_joined(peer_id: int) -> void:
-	if Network.state == Network.State.HOST:
-		var player := _add_player(peer_id)
-		if waves.phase == Phase.WAVE or waves.phase == Phase.SHOP:
-			player.build.catch_up(waves.number)
-			if waves.phase == Phase.SHOP:
-				player.build.finish_wave(waves.number)
-			player.sync_build(true)
-			_mark_profile(peer_id)
+	if Network.state != Network.State.HOST:
+		return
+	if waves.phase != Phase.LOBBY or Network.players_locked or Network.seat_change_pending:
+		Network.reject_player.call_deferred(peer_id)
+		return
+	_add_player(peer_id)
 
 
 func _peer_left(peer_id: int) -> void:
@@ -265,7 +283,7 @@ func _clear_combat() -> void:
 func _add_player(peer_id: int) -> Player:
 	var player: Player = PLAYER_SCENE.instantiate()
 	player.peer_id = peer_id
-	player.is_local = solo or peer_id == multiplayer.get_unique_id()
+	player.is_local = solo or (Network.state != Network.State.SPECTATOR and peer_id == multiplayer.get_unique_id())
 	player.is_replica = not _is_authority()
 	player.z_index = 2
 	player.position = _player_spawn(peer_id)
@@ -286,7 +304,7 @@ func _player_spawn(peer_id: int) -> Vector2:
 
 func _begin_wave() -> void:
 	_clear_combat()
-	waves.begin()
+	waves.begin(players.size())
 	sounds.play(Sounds.Cue.DEPLOY)
 	for player: Player in players.values():
 		player.position = _player_spawn(player.peer_id)
@@ -318,7 +336,7 @@ func _physics_process(delta: float) -> void:
 		if _frame_timer <= 0.0:
 			_frame_timer = FRAME_INTERVAL
 			_flush_profiles()
-			if Network.state == Network.State.HOST and players.size() > 1:
+			if Network.state == Network.State.HOST and (players.size() > 1 or Network.viewer_count > 0):
 				_send_snapshot(frame)
 	elif Network.state == Network.State.CLIENT and waves.phase == Phase.WAVE:
 		_input_timer -= delta
@@ -328,7 +346,7 @@ func _physics_process(delta: float) -> void:
 
 
 func _simulate_wave(delta: float) -> void:
-	var batch := waves.advance(delta, players.size())
+	var batch := waves.advance(delta)
 	if waves.remaining <= 0.0:
 		_finish_wave()
 		return
@@ -367,7 +385,7 @@ func _finish_wave() -> void:
 	for player: Player in players.values():
 		if waves.phase == Phase.SHOP:
 			player.build.finish_wave(waves.number)
-			player.level = player.build.level
+			player.sync_build()
 		_mark_profile(player.peer_id)
 
 
@@ -386,6 +404,7 @@ func _tick_players(delta: float) -> void:
 			continue
 		for slot in range(player.build.weapons.size()):
 			player.cooldowns[slot] -= delta
+		for slot in range(player.build.weapons.size()):
 			if player.cooldowns[slot] <= 0.0:
 				_fire_weapon(player, slot)
 
@@ -398,9 +417,11 @@ func _schedule_spawns(batch: int) -> void:
 				break
 			var point := center + Vector2.from_angle(randf() * TAU) * randf_range(6.0, 60.0)
 			_mark_spawn(_pick_enemy(), point.clamp(FOE_BOUNDS.position, FOE_BOUNDS.end), 0.63)
-	if waves.tree_in <= 0.0 and waves.remaining > 3.0:
-		waves.tree_in = randf_range(14.0, 20.0)
-		_mark_spawn(Enemy.Kind.TREE, _spawn_point(), 0.73)
+	if waves.tree_in <= 0.0 and waves.remaining > 1.0:
+		waves.tree_in += 10.0
+		for i in range(randi_range(1, 2)):
+			if enemies.size() + _markers.size() < MAX_FOES and randf() < 0.33:
+				_mark_spawn(Enemy.Kind.TREE, _spawn_point(), 0.73)
 	if not waves.special_spawned and waves.elapsed >= 1.5:
 		waves.special_spawned = true
 		if waves.number == Waves.LAST_WAVE:
@@ -437,6 +458,12 @@ func _tick_markers(delta: float) -> void:
 		var marker := _markers[i]
 		marker["time"] -= delta
 		if marker["time"] <= 0.0:
+			var point: Vector2 = marker["point"]
+			var nearest := _nearest_player(point)
+			if nearest != null and nearest.position.distance_squared_to(point) < 42.0 * 42.0:
+				marker["point"] = _spawn_point()
+				marker["time"] = 0.34
+				continue
 			_spawn_enemy(marker["kind"], marker["point"])
 			_markers.remove_at(i)
 
@@ -466,7 +493,7 @@ func _spawn_enemy(kind: int, point: Vector2) -> Enemy:
 func _add_enemy(id: int, kind: int, point: Vector2) -> Enemy:
 	var enemy: Enemy = ENEMY_SCENE.instantiate()
 	enemy.is_replica = not _is_authority()
-	enemy.configure(kind, maxi(1, waves.number), maxi(1, players.size()), Waves.DANGER_POWER[waves.danger])
+	enemy.configure(kind, maxi(1, waves.number), waves.team_size, Waves.DANGER_POWER[waves.danger])
 	if kind == Enemy.Kind.BOSS and waves.danger == 5:
 		enemy.hp = roundi(enemy.hp * 0.75)
 		enemy.max_hp = enemy.hp
@@ -497,7 +524,7 @@ func _tick_foes(delta: float) -> void:
 			if enemy.burn_clock <= 0.0:
 				enemy.burn_ticks -= 1
 				enemy.burn_clock += 0.36
-				if _hit_enemy(id, enemy.burn_amount, enemy.burn_owner):
+				if _hit_enemy(id, enemy.burn_amount, enemy.burn_owner, false, Vector2.ZERO, false):
 					continue
 		if enemy.kind == Enemy.Kind.TREE:
 			continue
@@ -547,10 +574,10 @@ func _nearest_foe(point: Vector2, reach: float, skip: Dictionary = {}) -> int:
 func _fire_weapon(player: Player, slot: int) -> void:
 	var weapon := player.build.weapons[slot]
 	var spec: Dictionary = Catalog.WEAPONS[weapon["id"]]
-	var tier := int(weapon["tier"]) - 1
+	var tier := int(weapon["tier"])
 	var stats := player.build.stats
 	var melee := spec.has("arc")
-	var reach := maxf(38.0, spec["reach"] + stats[Stat.REACH] * (0.50 if melee else 1.0))
+	var reach := Catalog.weapon_reach(spec, stats)
 	var point := player.position + player.mount_offset(slot)
 	var target_id := _nearest_foe(point, reach)
 	if target_id < 0:
@@ -559,9 +586,7 @@ func _fire_weapon(player: Player, slot: int) -> void:
 	var aim := point.direction_to(target.position)
 	if aim == Vector2.ZERO:
 		aim = Vector2.from_angle(player.weapon_angles[slot])
-	var interval := float(spec["rate"]) * float(Catalog.TIER_COOLDOWN[tier])
-	interval /= maxf(0.20, 1.0 + stats[Stat.ATTACK] / 100.0)
-	player.attack(slot, aim.angle(), maxf(0.06, interval))
+	player.attack(slot, aim.angle(), Catalog.weapon_interval(spec, tier, stats))
 	if player.is_local:
 		sounds.play(Sounds.Cue.SWING if melee else Sounds.Cue.SHOT)
 	if melee:
@@ -577,13 +602,16 @@ func _fire_weapon(player: Player, slot: int) -> void:
 		bolt.velocity = aim.rotated(spread) * float(spec["speed"])
 		bolt.distance = reach + 16.0
 		bolt.owner_id = player.peer_id
-		bolt.critical = _roll_crit(stats, spec)
-		bolt.damage = _weapon_damage(stats, spec, tier, bolt.critical)
+		bolt.critical = randf() * 100.0 < Catalog.crit_chance(spec, stats)
+		bolt.damage = Catalog.weapon_damage(spec, tier, stats, bolt.critical)
 		bolt.pierce = int(spec.get("pierce", 0))
-		bolt.bounce = int(spec.get("bounce", 0))
+		bolt.pierce_damage = float(spec.get("pierce_damage", 0.72))
+		if bolt.critical or not spec.get("bounce_on_crit", false):
+			bolt.bounce = int(spec.get("bounce", 0))
 		if spec.has("burn"):
-			bolt.burn = maxi(1, roundi(spec["burn"] * Catalog.TIER_DAMAGE[tier] + stats[Stat.ELEMENTAL]))
-		bolt.blast = float(spec.get("blast", 0.0))
+			bolt.burn = maxi(1, roundi(spec["burn"] * Catalog.TIER_DAMAGE[tier - 1] + stats[Stat.ELEMENTAL]))
+		bolt.blast = float(spec.get("blast", 0.0)) * (1.0 + stats[Stat.BLAST_SIZE] * 0.01)
+		bolt.knockback = float(spec.get("knock", 62.0))
 		_projectiles.append(bolt)
 
 
@@ -591,25 +619,21 @@ func _swing(player: Player, spec: Dictionary, tier: int, point: Vector2, aim: Ve
 		reach: float, target_id: int) -> void:
 	var arc_cutoff := cos(float(spec["arc"]))
 	var stats := player.build.stats
+	var thrust := float(spec.get("thrust", 0.0))
 	for id: int in enemies.keys():
 		var enemy: Enemy = enemies[id]
 		var difference := enemy.position - point
-		if id != target_id and (difference.length_squared() > pow(reach + enemy.radius * 0.55, 2.0)
-			or difference.normalized().dot(aim) < arc_cutoff):
-			continue
-		var critical := _roll_crit(stats, spec)
-		_hit_enemy(id, _weapon_damage(stats, spec, tier, critical), player.peer_id, critical)
-
-
-func _roll_crit(stats: PackedInt32Array, spec: Dictionary) -> bool:
-	return randf() * 100.0 < clampf(3.0 + stats[Stat.CRIT] + float(spec.get("crit", 0)), 0.0, 100.0)
-
-
-func _weapon_damage(stats: PackedInt32Array, spec: Dictionary, tier: int, crit: bool) -> int:
-	var stat_id: int = Stat.MELEE if spec.has("arc") else (Stat.ELEMENTAL if spec.has("burn") else Stat.RANGED)
-	var base := float(spec["damage"]) * float(Catalog.TIER_DAMAGE[tier])
-	var amount := (base + stats[stat_id] * float(spec.get("scale", 1.0))) * (1.0 + stats[Stat.DAMAGE] / 100.0)
-	return maxi(1, roundi(amount * (2.0 if crit else 1.0)))
+		if id != target_id:
+			var padding := enemy.radius * 0.55
+			if thrust > 0.0:
+				var along := difference.dot(aim)
+				if along < -padding or along > reach + padding or absf(difference.cross(aim)) > thrust + padding:
+					continue
+			elif difference.length_squared() > pow(reach + padding, 2.0) or difference.normalized().dot(aim) < arc_cutoff:
+				continue
+		var critical := randf() * 100.0 < Catalog.crit_chance(spec, stats)
+		var push := difference.normalized() * float(spec.get("knock", 124.0))
+		_hit_enemy(id, Catalog.weapon_damage(spec, tier, stats, critical), player.peer_id, critical, push)
 
 
 func _hostile_bolt(enemy: Enemy, direction: Vector2, speed: float) -> void:
@@ -703,7 +727,8 @@ func _impact(bolt: Projectile, id: int) -> bool:
 		_explode(bolt, enemy.position)
 		return true
 	var point := enemy.position
-	if not _hit_enemy(id, bolt.damage, bolt.owner_id, bolt.critical) and bolt.burn > 0:
+	var push := bolt.velocity.normalized() * bolt.knockback
+	if not _hit_enemy(id, bolt.damage, bolt.owner_id, bolt.critical, push) and bolt.burn > 0:
 		enemy.ignite(bolt.burn, bolt.owner_id)
 	bolt.hit_ids[id] = true
 	if bolt.bounce > 0:
@@ -718,7 +743,7 @@ func _impact(bolt: Projectile, id: int) -> bool:
 			return false
 	if bolt.pierce > 0:
 		bolt.pierce -= 1
-		bolt.damage = maxi(1, roundi(bolt.damage * 0.72))
+		bolt.damage = maxi(1, roundi(bolt.damage * bolt.pierce_damage))
 		return false
 	return true
 
@@ -730,18 +755,21 @@ func _explode(bolt: Projectile, point: Vector2) -> void:
 		var distance := point.distance_to(enemy.position)
 		if distance < bolt.blast + enemy.radius:
 			var factor := 1.0 - 0.35 * minf(1.0, distance / bolt.blast)
-			_hit_enemy(id, maxi(1, roundi(bolt.damage * factor)), bolt.owner_id, bolt.critical)
+			var push := point.direction_to(enemy.position) * 142.0
+			_hit_enemy(id, maxi(1, roundi(bolt.damage * factor)), bolt.owner_id, bolt.critical, push)
 
 
-func _hit_enemy(id: int, amount: int, owner_id: int, critical := false) -> bool:
+func _hit_enemy(id: int, amount: int, owner_id: int, critical := false,
+		impulse := Vector2.ZERO, weapon_hit := true) -> bool:
 	var enemy: Enemy = enemies[id]
 	enemy.hit(amount)
 	var tint := Color("#ffe298") if critical else Color("#fff0da")
 	_view.notice(enemy.position, str(amount), tint, critical)
 	var owner: Player = players.get(owner_id)
-	if owner != null and owner.hp > 0 and enemy.kind != Enemy.Kind.TREE:
+	if weapon_hit and owner != null and owner.hp > 0 and enemy.kind != Enemy.Kind.TREE:
 		owner.try_life_steal()
 	if enemy.hp > 0:
+		enemy.push(impulse)
 		return false
 	_enemy_loot(enemy, owner)
 	enemy.queue_free()
@@ -755,14 +783,14 @@ func _enemy_loot(enemy: Enemy, owner: Player) -> void:
 	var crate_chance := clampf(0.014 + luck * 0.0010, 0.005, 0.19)
 	var fruit_chance := clampf(0.043 + luck * 0.0012, 0.012, 0.28)
 	if enemy.kind == Enemy.Kind.TREE:
-		if randf() < clampf(0.23 + luck * 0.006, 0.09, 0.67):
+		if randf() < clampf(0.20 * (1.0 + luck * 0.01), 0.05, 0.80):
 			_drop_crate(point, false)
 		else:
 			_drop_pickup(Mark.FRUIT, point, 3)
 		return
 	waves.kills += 1
 	if enemy.kind in [Enemy.Kind.ELITE, Enemy.Kind.BOSS] or randf() < waves.material_drop_chance():
-		var base := roundi(enemy.reward * (1.0 + (players.size() - 1) * 0.42))
+		var base := waves.material_value(enemy.reward)
 		var bonus := mini(base, waves.bag)
 		waves.bag -= bonus
 		_drop_material(point, base + bonus)
@@ -853,8 +881,9 @@ func _distribute_materials(amount: int) -> void:
 		var payout := share + (1 if distance < extra else 0)
 		if payout > 0:
 			var player: Player = players[peers[i]]
-			player.build.earn(payout)
-			player.level = player.build.level
+			if player.build.earn(payout) > 0:
+				player.sync_build()
+				_view.notice(player.position, "LEVEL UP", Color("#d5b0f5"), true)
 			_mark_profile(player.peer_id)
 	_material_cursor = (_material_cursor + extra) % peers.size()
 

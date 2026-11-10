@@ -1,30 +1,44 @@
 extends Node
 
+const SpectatorFeed = preload("res://scripts/network/spectator_feed.gd")
+
 signal hosted
 signal session_ended
+signal combat_seats_locked
 signal input_received(peer_id: int, direction: Vector2)
 signal choice_received(peer_id: int, action: int, slot: int, revision: int)
 signal profile_received(profile: Dictionary)
 signal snapshot_received(info: PackedInt32Array, time_left: float,
 		roster: PackedFloat32Array, horde: PackedFloat32Array, world: PackedFloat32Array)
 
-enum State { IDLE, REQUESTING, HOST, CONNECTING, CLIENT }
+enum State { IDLE, REQUESTING, HOST, CONNECTING, CLIENT, SPECTATOR }
 
 const HOST_ID := 1
 const ROOM_CAPACITY := 4
 const SIGNAL_INTERVAL := 0.20
 const RTC_TIMEOUT_MS := 18000
+const ROOM_PROTOCOL := 2
 
 var state: int = State.IDLE
 var room_code := ""
 var status := ""
+var viewer_count := 0
+var players_locked := false
+var seat_change_pending: bool:
+	get:
+		return not _seat_change.is_empty() or not _seat_inflight.is_empty()
 
 var _token := ""
 var _url := ""
+var _origin := ""
 var _ice_servers: Array = []
 var _rtc: WebRTCMultiplayerPeer
 var _http: HTTPRequest
+var _feed: SpectatorFeed
 var _action := ""
+var _seat_change := ""
+var _seat_inflight := ""
+var _seat_roster: Array = []
 var _sync_in := 0.0
 var _connections: Dictionary = {}
 var _deadlines: Dictionary = {}
@@ -40,6 +54,11 @@ func _ready() -> void:
 	_http.body_size_limit = 1024 * 1024
 	add_child(_http)
 	_http.request_completed.connect(_on_reply)
+	_feed = SpectatorFeed.new()
+	add_child(_feed)
+	_feed.frame_received.connect(_receive_spectator_frame)
+	_feed.closed.connect(_spectator_closed, CONNECT_DEFERRED)
+	_feed.status_changed.connect(_spectator_status)
 	multiplayer.connected_to_server.connect(_on_connected)
 	multiplayer.server_disconnected.connect(_on_host_disconnected)
 	multiplayer.peer_connected.connect(_on_peer_connected)
@@ -53,15 +72,43 @@ func create_room() -> void:
 
 
 func join_room(code: String) -> void:
+	_find_room("join", code)
+
+
+func watch_room(code: String) -> void:
+	_find_room("watch", code)
+
+
+func _find_room(action: String, code: String) -> void:
 	code = code.strip_edges().to_upper()
 	if code.length() != 6:
 		status = "Enter a six-character room code."
 		return
-	_open_room("join", code)
+	_open_room(action, code)
 
 
 func leave_room() -> void:
 	_close("")
+
+
+func lock_player_seats(roster: Array) -> void:
+	if state == State.HOST and not players_locked and not seat_change_pending:
+		_seat_change = "lock"
+		_seat_roster = roster.duplicate()
+		_sync_in = 0.0
+
+
+func open_player_seats() -> void:
+	if state == State.HOST and players_locked:
+		_seat_change = "open"
+		_seat_roster.clear()
+		_sync_in = 0.0
+
+
+func reject_player(peer_id: int) -> void:
+	if state == State.HOST and _connections.has(peer_id):
+		_forget_peer(peer_id)
+		_drops.append(peer_id)
 
 
 func _open_room(action: String, code: String) -> void:
@@ -71,10 +118,11 @@ func _open_room(action: String, code: String) -> void:
 		status = "Open the Web export to play online."
 		return
 	var browser := JavaScriptBridge.get_interface("window")
-	_url = str(browser.location.origin) + "/signal"
+	_origin = str(browser.location.origin)
+	_url = _origin + "/signal"
 	state = State.REQUESTING
 	status = "Creating room..." if action == "create" else "Looking up room..."
-	_request(action, {"code": code})
+	_request(action, {"code": code, "version": ROOM_PROTOCOL})
 
 
 func _request(action: String, data: Dictionary) -> void:
@@ -102,7 +150,13 @@ func _process(delta: float) -> void:
 		_outbox = _outbox.slice(batch.size())
 		var drops := _drops.duplicate()
 		_drops.clear()
-		_request("sync", {"code": room_code, "token": _token, "messages": batch, "drop": drops})
+		var payload := {"code": room_code, "token": _token, "messages": batch, "drop": drops}
+		if not _seat_change.is_empty():
+			_seat_inflight = _seat_change
+			_seat_change = ""
+			payload["seats"] = _seat_inflight
+			payload["active"] = _seat_roster
+		_request("sync", payload)
 
 
 func _on_reply(result: int, response: int, _headers: PackedStringArray,
@@ -119,10 +173,22 @@ func _on_reply(result: int, response: int, _headers: PackedStringArray,
 		_close(str(data.get("error", "The room request failed.")), true)
 		return
 	if action == "sync":
+		var locking := _seat_inflight == "lock"
+		_seat_inflight = ""
+		players_locked = data.get("locked", false)
+		viewer_count = int(data.get("viewers", 0))
 		for event: Dictionary in data.get("events", []):
 			_handle_event(event)
 			if state == State.IDLE:
 				break
+		if locking and state == State.HOST and players_locked:
+			combat_seats_locked.emit()
+		return
+	if action == "watch":
+		room_code = str(data["code"])
+		state = State.SPECTATOR
+		if not _feed.watch(_origin, room_code, str(data["watchKey"])):
+			_close("Could not open the spectator feed.", true)
 		return
 	_token = str(data["token"])
 	room_code = str(data["code"])
@@ -282,6 +348,7 @@ func _close(message: String, unexpected := false) -> void:
 	if not _token.is_empty():
 		_notify_leave()
 	state = State.IDLE
+	_feed.stop()
 	_http.cancel_request()
 	_action = ""
 	multiplayer.multiplayer_peer = OfflineMultiplayerPeer.new()
@@ -296,6 +363,11 @@ func _close(message: String, unexpected := false) -> void:
 	_early_ice.clear()
 	_outbox.clear()
 	_drops.clear()
+	_seat_change = ""
+	_seat_inflight = ""
+	_seat_roster.clear()
+	players_locked = false
+	viewer_count = 0
 	_token = ""
 	room_code = ""
 	status = message
@@ -328,6 +400,24 @@ func send_snapshot(info: PackedInt32Array, time_left: float, roster: PackedFloat
 		for peer_id: int in multiplayer.get_peers():
 			if _data_channels_open(peer_id):
 				_apply_snapshot.rpc_id(peer_id, info, time_left, roster, horde, world)
+		if viewer_count > 0:
+			_feed.publish(_url, room_code, _token, [info, time_left, roster, horde, world])
+
+
+func _receive_spectator_frame(info: PackedInt32Array, time_left: float, roster: PackedFloat32Array,
+		horde: PackedFloat32Array, world: PackedFloat32Array) -> void:
+	if state == State.SPECTATOR:
+		snapshot_received.emit(info, time_left, roster, horde, world)
+
+
+func _spectator_status(message: String) -> void:
+	if state == State.SPECTATOR:
+		status = message
+
+
+func _spectator_closed(message: String) -> void:
+	if state == State.SPECTATOR:
+		_close(message, true)
 
 
 func send_choice(action: int, slot: int, revision: int) -> void:

@@ -29,11 +29,13 @@ var _join_code: LineEdit
 var _solo_button: Button
 var _host_button: Button
 var _join_button: Button
+var _watch_button: Button
 var _leave_button: Button
 var _mute: Button
 var _menu_status: Label
 var _hp: Label
 var _xp: Label
+var _watch_status: Label
 var _wallet: Label
 var _bag: Label
 var _time: Label
@@ -73,8 +75,8 @@ func _build_menu() -> void:
 		Rect2(28, 214, 436, 58), 18, MUTED)
 	_solo_button = _button(card, "DEPLOY SOLO", Rect2(27, 294, 444, 52), LIME, DARK)
 	_solo_button.pressed.connect(arena.open_solo)
-	_label(card, "ONLINE CO-OP   /   2–4 PLAYERS", Rect2(28, 365, 420, 27), 14, GOLD)
-	_host_button = _button(card, "CREATE ROOM", Rect2(27, 404, 163, 46))
+	_label(card, "ONLINE   /   2–4 PLAYERS + SPECTATORS", Rect2(28, 365, 420, 27), 14, GOLD)
+	_host_button = _button(card, "CREATE ROOM", Rect2(27, 404, 134, 46))
 	_host_button.pressed.connect(Network.create_room)
 	_join_code = LineEdit.new()
 	_join_code.placeholder_text = "CODE"
@@ -85,10 +87,12 @@ func _build_menu() -> void:
 	_join_code.add_theme_color_override("font_placeholder_color", MUTED)
 	_join_code.add_theme_stylebox_override("normal", _style(DARK, LINE, 5))
 	_join_code.add_theme_stylebox_override("focus", _style(DARK, LIME, 5))
-	_mount(_join_code, card, Rect2(203, 404, 135, 46))
+	_mount(_join_code, card, Rect2(172, 404, 102, 46))
 	_join_code.text_submitted.connect(func(_text: String) -> void: _join())
-	_join_button = _button(card, "JOIN", Rect2(351, 404, 120, 46))
+	_join_button = _button(card, "JOIN", Rect2(285, 404, 78, 46))
 	_join_button.pressed.connect(_join)
+	_watch_button = _button(card, "WATCH", Rect2(374, 404, 97, 46))
+	_watch_button.pressed.connect(_watch)
 	_menu_status = _label(card, "", Rect2(28, 462, 444, 46), 15, MUTED)
 	_menu_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 
@@ -124,6 +128,7 @@ func _build_hud() -> void:
 	_hp_bar = _bar(_hud, Rect2(26, 34, 232, 12), RED)
 	_xp_bar = _bar(_hud, Rect2(26, 55, 232, 6), Color("#c6a0f2"))
 	_xp = _label(_hud, "", Rect2(270, 43, 164, 24), 13, MUTED)
+	_watch_status = _label(_hud, "", Rect2(26, 32, 455, 29), 14, MUTED)
 	_wallet = _label(_hud, "", Rect2(353, 5, 185, 30), 18, LIME)
 	_bag = _label(_hud, "", Rect2(354, 36, 170, 25), 13, GOLD)
 	_wave = _label(_hud, "", Rect2(492, 4, 220, 24), 14, GOLD)
@@ -138,14 +143,17 @@ func _build_hud() -> void:
 
 func _process(_delta: float) -> void:
 	var state := Network.state
+	var watching := state == Network.State.SPECTATOR
 	var pending := state in [Network.State.REQUESTING, Network.State.CONNECTING]
 	var in_menu := not arena.solo and (state == Network.State.IDLE or pending)
 	_menu.visible = in_menu
 	_hud.visible = not in_menu
 	_leave_button.visible = pending or not in_menu
+	_leave_button.text = "LEAVE" if watching else "EXIT"
 	_solo_button.disabled = pending
 	_host_button.disabled = pending
 	_join_button.disabled = pending
+	_watch_button.disabled = pending
 	_join_code.editable = not pending
 	_menu_status.text = Network.status if not Network.status.is_empty() else "Invite friends with a room code."
 	if not in_menu:
@@ -158,16 +166,28 @@ func _process(_delta: float) -> void:
 	if show_panel:
 		key = "%d/%d/%d/%d/%d/%d/%s/%s" % [state, phase, arena.local_profile.get("revision", 0),
 			arena.players.size(), arena.waves.ready_count, arena.waves.danger, Network.room_code, _inspect]
+		if state == Network.State.HOST and phase == Phase.LOBBY:
+			key += "/%d/%s" % [Network.viewer_count, Network.seat_change_pending]
 	if key != _overlay_key:
 		_overlay_key = key
 		_replace_overlay(show_panel)
 
 
 func _update_hud() -> void:
+	var watching := Network.state == Network.State.SPECTATOR
+	_hp_bar.visible = not watching
+	_xp_bar.visible = not watching
+	_xp.visible = not watching
+	_wallet.visible = not watching
+	_bag.visible = not watching
+	_watch_status.visible = watching
 	var profile := arena.local_profile
 	var my_id := multiplayer.get_unique_id()
 	var player: Player = arena.players.get(my_id)
-	if player != null:
+	if watching:
+		_hp.text = "SPECTATING"
+		_watch_status.text = Network.status
+	elif player != null:
 		_hp.text = "HP   %d / %d    •    LV %d" % [player.hp, player.max_hp, player.level]
 		_hp_bar.max_value = player.max_hp
 		_hp_bar.value = player.hp
@@ -180,8 +200,8 @@ func _update_hud() -> void:
 	_wallet.text = "%d MATERIALS" % profile.get("materials", 0)
 	_bag.text = "BAG  %d" % arena.waves.bag
 	if arena.waves.phase == Phase.LOBBY:
-		_wave.text = "PREPARE YOUR LOADOUT"
-		_time.text = "READY?"
+		_wave.text = "WAITING FOR DEPLOYMENT" if watching else "PREPARE YOUR LOADOUT"
+		_time.text = "LOBBY" if watching else "READY?"
 	elif arena.waves.phase == Phase.WAVE:
 		var encounter := arena.waves.encounter(arena.waves.number)
 		_wave.text = "WAVE %02d / 20" % arena.waves.number if encounter.is_empty() else encounter
@@ -218,6 +238,8 @@ func _replace_overlay(show_panel: bool) -> void:
 	var phase := arena.waves.phase
 	if phase in [Phase.VICTORY, Phase.DEFEAT]:
 		_result(phase == Phase.VICTORY)
+	elif Network.state == Network.State.SPECTATOR:
+		_spectator_overlay(phase)
 	elif profile.is_empty() or profile.get("phase", -1) != phase or profile.get("wave", -1) != arena.waves.number:
 		_overlay = _panel(_root, Rect2(341, 267, 438, 123))
 		_center(_label(_overlay, "Syncing your loadout...", Rect2(10, 30, 418, 61), 23, MUTED))
@@ -233,11 +255,22 @@ func _replace_overlay(show_panel: bool) -> void:
 		_shop(profile)
 
 
+func _spectator_overlay(phase: int) -> void:
+	_overlay = _panel(_root, Rect2(334, 212, 452, 112))
+	var title := "Waiting for the squad" if phase == Phase.LOBBY else "Between waves"
+	var detail := "Watch the match as soon as the host deploys."
+	if phase == Phase.SHOP:
+		detail = "%d / %d players ready for the next wave." % [arena.waves.ready_count, arena.players.size()]
+	_center(_label(_overlay, title, Rect2(10, 12, 432, 39), 24, PAPER))
+	_center(_label(_overlay, detail, Rect2(10, 59, 432, 32), 15, MUTED))
+
+
 func _loadout(profile: Dictionary) -> void:
 	_overlay = _panel(_root, Rect2(63, 108, 994, 524))
 	var online := not arena.solo
 	var own_origin := int(profile["origin"])
 	var own_weapon := int(profile["starter"])
+	var stats: PackedInt32Array = profile["stats"]
 	var origin: Dictionary = Catalog.ORIGINS[own_origin]
 	_label(_overlay, "CHOOSE YOUR LOADOUT", Rect2(24, 18, 688, 44), 31)
 	if online:
@@ -262,13 +295,15 @@ func _loadout(profile: Dictionary) -> void:
 		var button := _button(_overlay, Catalog.WEAPONS[id]["name"], Rect2(x, y, 178, 42),
 			LIME if selected else DARK, DARK if selected else PAPER, 16)
 		button.disabled = not Catalog.allows_weapon(own_origin, id)
-		button.tooltip_text = _weapon_text(id, 1, true)
+		button.tooltip_text = _weapon_text(id, 1, stats, true)
 		button.pressed.connect(arena.act.bind(Action.STARTER, id))
-	_label(_overlay, _weapon_text(own_weapon, 1, true).replace("\n", "   •   "),
+	_label(_overlay, _weapon_text(own_weapon, 1, stats, true).replace("\n", "   •   "),
 		Rect2(25, 372, 944, 33), 15, MUTED)
 	var is_guest := Network.state == Network.State.CLIENT
-	var room_text := "Solo   /   20 waves" if arena.solo else "%d / 4 connected   •   %d guest(s) ready" % [
+	var room_text := "Solo   /   20 waves" if arena.solo else "%d/4 players   •   %d ready" % [
 		arena.players.size(), arena.waves.ready_count]
+	if Network.state == Network.State.HOST:
+		room_text += "   •   %d watching" % Network.viewer_count
 	_label(_overlay, room_text, Rect2(25, 449, 372, 44), 17, GOLD)
 	var danger := _button(_overlay, "DANGER %d" % arena.waves.danger, Rect2(415, 444, 242, 53))
 	danger.disabled = is_guest
@@ -278,7 +313,7 @@ func _loadout(profile: Dictionary) -> void:
 	if is_guest:
 		ready_text = "UNREADY" if profile["ready"] else "READY UP"
 	elif not arena.can_launch():
-		ready_text = "WAITING FOR SQUAD"
+		ready_text = "LOCKING SEATS..." if Network.seat_change_pending else "WAITING FOR SQUAD"
 	var start := _button(_overlay, ready_text, Rect2(678, 444, 292, 53), LIME, DARK, 17)
 	start.disabled = not is_guest and not arena.can_launch()
 	if is_guest:
@@ -332,7 +367,7 @@ func _shop(profile: Dictionary) -> void:
 	_label(_overlay, subtitle, Rect2(19, 59, 560, 28), 14, GOLD)
 	_label(_overlay, "%d MATERIALS" % profile["materials"], Rect2(641, 23, 189, 36), 19, LIME)
 	var roll := _button(_overlay, "REROLL  %d" % profile["roll"], Rect2(834, 20, 194, 43))
-	roll.disabled = profile["ready"] or profile["materials"] < profile["roll"]
+	roll.disabled = profile["ready"] or not profile["can_roll_shop"] or profile["materials"] < profile["roll"]
 	roll.pressed.connect(arena.act.bind(Action.SHOP_ROLL))
 
 	var offers: Array = profile["shop"]
@@ -344,7 +379,7 @@ func _shop(profile: Dictionary) -> void:
 	sets.tooltip_text = _class_details(profile["classes"])
 	sets.mouse_filter = Control.MOUSE_FILTER_PASS
 	for i in range(Catalog.SLOT_COUNT):
-		_inventory_card(i, weapons, profile["ready"])
+		_inventory_card(i, weapons, profile["stats"], profile["ready"])
 	_label(_overlay, _stat_line(profile["stats"]), Rect2(19, 457, 689, 29), 15, MUTED)
 	_label(_overlay, "%d / %d ready   •   HP refills next wave" % [
 		arena.waves.ready_count, arena.players.size()], Rect2(19, 490, 687, 27), 15, GOLD)
@@ -366,7 +401,7 @@ func _offer_card(offer: Dictionary, slot: int, profile: Dictionary) -> void:
 	var kind := "WEAPON" if weapon else "PASSIVE"
 	_label(card, "%s   /   TIER %s" % [kind, Catalog.TIERS[offer["tier"] - 1]], Rect2(12, 7, 220, 22), 12, accent)
 	_label(card, spec["name"], Rect2(11, 30, 220, 34), 20)
-	var summary := _weapon_text(offer["id"], offer["tier"], false) if weapon else Catalog.effects_text(spec["stats"])
+	var summary := _weapon_text(offer["id"], offer["tier"], profile["stats"], false) if weapon else Catalog.effects_text(spec["stats"])
 	_label(card, summary, Rect2(12, 67, 220, 64), 13, MUTED)
 	var buy := _button(card, "BUY  %d" % offer["price"], Rect2(11, 137, 122, 37), LIME, DARK)
 	var space: bool = not weapon or profile["weapons"].size() < Catalog.SLOT_COUNT or _has_match(profile["weapons"], offer)
@@ -380,11 +415,11 @@ func _offer_card(offer: Dictionary, slot: int, profile: Dictionary) -> void:
 	var lock := _button(card, "UNLOCK" if offer["locked"] else "LOCK", Rect2(142, 137, 91, 37),
 		GOLD if offer["locked"] else DARK, DARK if offer["locked"] else PAPER)
 	lock.disabled = profile["ready"]
-	lock.tooltip_text = "Keep this offer through rerolls and into the next shop."
+	lock.tooltip_text = "Keep this offer and its price through rerolls and later waves."
 	lock.pressed.connect(arena.act.bind(Action.LOCK, slot))
 
 
-func _inventory_card(slot: int, weapons: Array, ready: bool) -> void:
+func _inventory_card(slot: int, weapons: Array, stats: PackedInt32Array, ready: bool) -> void:
 	var card := _panel(_overlay, Rect2(19 + slot * 170, 332, 159, 109), CARD)
 	if slot >= weapons.size():
 		_center(_label(card, "EMPTY SLOT", Rect2(9, 16, 141, 77), 13, MUTED))
@@ -393,7 +428,8 @@ func _inventory_card(slot: int, weapons: Array, ready: bool) -> void:
 	var name_text: String = Catalog.WEAPONS[weapon["id"]]["name"]
 	var label := _label(card, "%s %s" % [name_text, Catalog.TIERS[weapon["tier"] - 1]],
 		Rect2(8, 5, 143, 38), 15, _tier(weapon["tier"]))
-	label.tooltip_text = _weapon_text(weapon["id"], weapon["tier"], true)
+	label.tooltip_text = _weapon_text(weapon["id"], weapon["tier"], stats, true)
+	label.mouse_filter = Control.MOUSE_FILTER_PASS
 	var combine := _button(card, "MERGE", Rect2(7, 55, 70, 38), DARK, PAPER, 12)
 	combine.disabled = ready or not _has_match(weapons, weapon, slot)
 	combine.tooltip_text = "Merge two identical weapons of this tier to upgrade one."
@@ -456,17 +492,19 @@ func _result(victory: bool) -> void:
 		_label(_overlay, "Waiting for the host to start a new run.", Rect2(26, 235, 533, 53), 18, MUTED)
 
 
-func _weapon_text(id: int, tier: int, full: bool) -> String:
+func _weapon_text(id: int, tier: int, stats: PackedInt32Array, full: bool) -> String:
 	var spec: Dictionary = Catalog.WEAPONS[id]
 	var family := " / ".join(PackedStringArray(spec["families"]))
-	var damage := roundi(spec["damage"] * Catalog.TIER_DAMAGE[tier - 1])
-	var rate: float = spec["rate"] * Catalog.TIER_COOLDOWN[tier - 1]
+	var damage := Catalog.weapon_damage(spec, tier, stats)
+	var rate := Catalog.weapon_interval(spec, tier, stats)
 	var pellets := int(spec.get("pellets", 1))
+	if spec.has("arc"):
+		family += "   •   Thrust" if spec.has("thrust") else "   •   Sweep"
 	var text := "%s\n%d dmg   •   %.2fs" % [family, damage, rate]
 	if pellets > 1:
 		text += "   •   %d pellets" % pellets
 	if full:
-		text += "\n%d range" % spec["reach"]
+		text += "\n%d range   •   %.0f%% crit" % [roundi(Catalog.weapon_reach(spec, stats)), Catalog.crit_chance(spec, stats)]
 	return text
 
 
@@ -483,8 +521,8 @@ func _class_details(classes: Dictionary) -> String:
 	for family: String in classes:
 		var count: int = classes[family]
 		if count >= 2:
-			var bonus: Array = Catalog.CLASS_BONUSES[family]
-			labels.append("%s: %s" % [family, Catalog.stat_text(bonus[0], bonus[1] * count)])
+			var bonuses := Catalog.effects_text(Catalog.class_bonus(family, count)).replace("\n", ", ")
+			labels.append("%s: %s" % [family, bonuses])
 	return "Match two weapons that share a class to earn a set bonus." if labels.is_empty() else "\n".join(labels)
 
 
@@ -510,6 +548,11 @@ func _toggle_sound() -> void:
 func _join() -> void:
 	_join_code.release_focus()
 	Network.join_room(_join_code.text)
+
+
+func _watch() -> void:
+	_join_code.release_focus()
+	Network.watch_room(_join_code.text)
 
 
 func _leave() -> void:

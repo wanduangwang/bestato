@@ -1,5 +1,7 @@
 extends Node2D
 
+const Balance = preload("res://scripts/game/balance.gd")
+
 enum Kind { CHASER, RUNNER, SHOOTER, TANK, CHARGER, NEST, ELITE, BOSS, TREE }
 enum Mode { MOVE, WINDUP, DASH }
 enum Attack { NONE, AIMED, RING, HATCH }
@@ -33,17 +35,18 @@ var burn_owner := 0
 var _ability := 0.0
 var _use_ring := true
 var _animation := 0.0
+var _knockback := Vector2.ZERO
 
 
 func configure(enemy_kind: int, wave: int, team: int, strength := 1.0) -> void:
 	kind = enemy_kind
 	radius = RADII[kind]
 	speed = SPEEDS[kind] * (1.0 + mini(wave - 1, 14) * 0.018)
-	var scaling := (1.0 + (team - 1) * 0.30) * strength
+	var scaling := Balance.enemy_hp_scale(team) * strength
 	var late_health := pow(maxi(0, wave - 8), 2.0) * 0.63 if kind != Kind.TREE else 0.0
 	hp = roundi((BASE_HP[kind] + (wave - 1) * HP_PER_WAVE[kind] + late_health) * scaling)
 	max_hp = hp
-	contact_damage = roundi((BASE_DAMAGE[kind] + (wave - 1) * 0.43) * (1.0 + (team - 1) * 0.08) * strength)
+	contact_damage = roundi((BASE_DAMAGE[kind] + (wave - 1) * 0.43) * Balance.enemy_damage_scale(team) * strength)
 	if kind == Kind.TREE:
 		contact_damage = 0
 	reward = MATERIALS[kind]
@@ -53,6 +56,8 @@ func configure(enemy_kind: int, wave: int, team: int, strength := 1.0) -> void:
 func simulate(target: Vector2, delta: float, bounds: Rect2) -> int:
 	if kind == Kind.TREE:
 		return Attack.NONE
+	position = (position + _knockback * delta).clamp(bounds.position, bounds.end)
+	_knockback *= exp(-12.0 * delta)
 	_ability -= delta
 	var distance := position.distance_to(target)
 	if mode == Mode.DASH:
@@ -105,6 +110,12 @@ func _wind_up(seconds: float) -> void:
 func hit(amount: int) -> void:
 	hp -= amount
 	hit_flash = 0.10
+
+
+func push(impulse: Vector2) -> void:
+	if kind not in [Kind.TREE, Kind.BOSS, Kind.ELITE] and mode != Mode.DASH:
+		var resistance := 0.40 if kind == Kind.TANK else 1.0
+		_knockback = (_knockback + impulse * resistance).limit_length(260.0)
 
 
 func ignite(amount: int, owner_id: int) -> void:

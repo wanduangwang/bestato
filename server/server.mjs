@@ -7,9 +7,11 @@ import { fileURLToPath } from "node:url";
 
 const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 const capacity = 4;
+const protocol = 2;
 const roomLimit = 128;
 const idleMs = 25_000;
 const bodyLimit = 256 * 1024;
+const frameLimit = 64 * 1024;
 const webRoot = fileURLToPath(new URL("../web/", import.meta.url));
 const rooms = new Map();
 const defaultIce = [{ urls: ["stun:stun.l.google.com:19302"] }];
@@ -49,6 +51,10 @@ function addMember(room) {
 function removeMember(code, room, id) {
   if (id === 1) {
     rooms.delete(code);
+    for (const viewer of room.viewers) {
+      viewer.end("event: room_closed\ndata: The host closed the room.\n\n");
+    }
+    room.viewers.clear();
     return;
   }
   if (room.members.delete(id)) {
@@ -62,7 +68,7 @@ function reapRooms() {
   const now = Date.now();
   for (const [code, room] of rooms) {
     if (now - room.members.get(1).touched > idleMs) {
-      rooms.delete(code);
+      removeMember(code, room, 1);
       continue;
     }
     for (const member of room.members.values()) {
@@ -100,6 +106,65 @@ function relay(room, sender, packet) {
   recipient.events.push(event);
 }
 
+function publishFrame(res, room, member, frame) {
+  if (member.id !== 1) return json(res, 403, { error: "Only the host can publish a frame." });
+  if (typeof frame !== "string" || frame.length === 0 || frame.length > frameLimit ||
+      frame.length % 4 !== 0 || !/^[A-Za-z0-9+/]+={0,2}$/.test(frame)) {
+    return json(res, 400, { error: "Invalid spectator frame." });
+  }
+  const now = Date.now();
+  if (room.viewers.size > 0 && now - room.frameAt >= 50) {
+    room.frameAt = now;
+    room.frame = `data: ${frame}\n\n`;
+    for (const viewer of room.viewers) {
+      // A slow viewer skips frames. The next frame is self-contained.
+      if (!viewer.destroyed && !viewer.writableEnded && !viewer.writableNeedDrain) {
+        viewer.write(room.frame);
+      }
+    }
+  }
+  res.writeHead(204).end();
+}
+
+function openSpectatorFeed(req, res, url) {
+  if (req.method !== "GET") return json(res, 405, { error: "Use GET for the spectator feed." });
+  reapRooms();
+  const room = rooms.get(url.searchParams.get("code"));
+  if (!room || url.searchParams.get("key") !== room.watchKey) {
+    // The terminal event lets EventSource close instead of retrying an expired room.
+    res.writeHead(200, { "Content-Type": "text/event-stream; charset=utf-8", "Cache-Control": "no-store" });
+    return res.end("event: room_closed\ndata: Room not found or the host left.\n\n");
+  }
+  res.writeHead(200, {
+    "Content-Type": "text/event-stream; charset=utf-8",
+    "Cache-Control": "no-store, no-transform",
+    "X-Accel-Buffering": "no",
+  });
+  room.viewers.add(res);
+  res.on("close", () => {
+    room.viewers.delete(res);
+    if (room.viewers.size === 0) room.frame = "";
+  });
+  res.write("retry: 1200\n: watching\n\n");
+  if (room.frame && Date.now() - room.frameAt < 1500 && !res.writableNeedDrain) {
+    res.write(room.frame);
+  }
+}
+
+function setPlayerSeats(code, room, data) {
+  if (data.seats === "open") {
+    room.locked = false;
+    return;
+  }
+  if (data.seats !== "lock" || !Array.isArray(data.active) ||
+      data.active.length > capacity || !data.active.includes(1)) return;
+  room.locked = true;
+  const allowed = new Set(data.active);
+  for (const id of room.members.keys()) {
+    if (!allowed.has(id)) removeMember(code, room, id);
+  }
+}
+
 async function signal(req, res) {
   if (req.method !== "POST") return json(res, 405, { error: "Use POST for signaling." });
   if (Number(req.headers["content-length"]) > bodyLimit) {
@@ -124,18 +189,28 @@ async function signal(req, res) {
   }
 
   reapRooms();
+  if (["create", "join", "watch"].includes(data.action) && data.version !== protocol) {
+    return json(res, 426, { error: "Reload the game to get the current room version." });
+  }
   if (data.action === "create") {
     if (rooms.size >= roomLimit) return json(res, 503, { error: "Room server is full." });
     const code = newCode();
-    const room = { members: new Map(), nextId: 1 };
+    const room = {
+      members: new Map(), nextId: 1, locked: false,
+      watchKey: randomBytes(24).toString("base64url"), viewers: new Set(), frame: "", frameAt: 0,
+    };
     rooms.set(code, room);
     return sendAdmission(res, code, addMember(room));
   }
 
   const room = rooms.get(data.code);
   if (!room) return json(res, 404, { error: "Room not found or the host left." });
+  if (data.action === "watch") {
+    return json(res, 200, { code: data.code, watchKey: room.watchKey });
+  }
   if (data.action === "join") {
-    if (room.members.size >= capacity) return json(res, 409, { error: "This room is full." });
+    if (room.locked) return json(res, 409, { error: "Run in progress. Choose Watch." });
+    if (room.members.size >= capacity) return json(res, 409, { error: "This room is full. Choose Watch." });
     const member = addMember(room);
     room.members.get(1).events.push({ type: "peer_joined", peer: member.id });
     return sendAdmission(res, data.code, member);
@@ -143,6 +218,7 @@ async function signal(req, res) {
 
   const member = [...room.members.values()].find((entry) => entry.token === data.token);
   if (!member) return json(res, 403, { error: "Your room slot has expired." });
+  if (data.action === "publish") return publishFrame(res, room, member, data.frame);
   if (data.action === "leave") {
     removeMember(data.code, room, member.id);
     return json(res, 200, {});
@@ -150,6 +226,7 @@ async function signal(req, res) {
   if (data.action !== "sync") return json(res, 400, { error: "Unknown signaling action." });
 
   member.touched = Date.now();
+  if (member.id === 1) setPlayerSeats(data.code, room, data);
   if (member.id === 1 && Array.isArray(data.drop)) {
     for (const id of data.drop.slice(0, capacity - 1)) {
       if (Number.isInteger(id) && id > 1) removeMember(data.code, room, id);
@@ -158,7 +235,9 @@ async function signal(req, res) {
   if (Array.isArray(data.messages)) {
     for (const packet of data.messages.slice(0, 64)) relay(room, member, packet);
   }
-  return json(res, 200, { events: member.events.splice(0, 64) });
+  return json(res, 200, {
+    events: member.events.splice(0, 64), locked: room.locked, viewers: room.viewers.size,
+  });
 }
 
 const mimeTypes = {
@@ -202,8 +281,10 @@ async function serveWeb(req, res, pathname) {
 
 const server = createServer(async (req, res) => {
   try {
-    const pathname = decodeURIComponent(new URL(req.url, "http://localhost").pathname);
+    const url = new URL(req.url, "http://localhost");
+    const pathname = decodeURIComponent(url.pathname);
     if (pathname === "/signal") await signal(req, res);
+    else if (pathname === "/spectate") openSpectatorFeed(req, res, url);
     else await serveWeb(req, res, pathname);
   } catch {
     if (res.headersSent) res.destroy();
@@ -211,7 +292,14 @@ const server = createServer(async (req, res) => {
   }
 });
 
-setInterval(reapRooms, 5000).unref();
+setInterval(() => {
+  reapRooms();
+  for (const room of rooms.values()) {
+    for (const viewer of room.viewers) {
+      if (!viewer.writableNeedDrain && !viewer.writableEnded && !viewer.destroyed) viewer.write(": keepalive\n\n");
+    }
+  }
+}, 12_000).unref();
 const host = process.env.HOST || "127.0.0.1";
 const port = Number(process.env.PORT || 8787);
 server.listen(port, host, () => {

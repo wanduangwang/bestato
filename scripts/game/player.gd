@@ -19,7 +19,7 @@ var peer_id := 1
 var hp := 15
 var max_hp := 15
 var origin := 0
-var level := 1
+var level := 0
 var facing := 1.0
 var is_local := false
 var is_replica := false
@@ -83,7 +83,7 @@ func simulate(delta: float, direction: Vector2, bounds: Rect2) -> void:
 	if absf(direction.x) > 0.02:
 		facing = signf(direction.x)
 	if hp < max_hp:
-		_regen += maxf(0.0, build.stats[Stat.REGEN] * 0.19) * delta
+		_regen += maxf(0.0, build.stats[Stat.REGEN] * 0.20) * delta
 		if _regen >= 1.0:
 			var recovered := floori(_regen)
 			heal(recovered)
@@ -116,7 +116,7 @@ func heal(amount: int) -> int:
 func try_life_steal() -> void:
 	if _steal_delay <= 0.0 and hp < max_hp and randf() * 100.0 < build.stats[Stat.STEAL]:
 		heal(1)
-		_steal_delay = 0.20
+		_steal_delay = 0.10
 
 
 func attack(slot: int, angle: float, interval: float) -> void:
@@ -124,6 +124,14 @@ func attack(slot: int, angle: float, interval: float) -> void:
 	shot_numbers[slot] += 1
 	flashes[slot] = 0.13
 	cooldowns[slot] = interval
+	# Separate simultaneous copies so the first nearby target does not soak every shot.
+	var weapon_id := (weapon_codes[slot] - 1) >> 2
+	var copies: Array[int] = []
+	for i in range(SLOT_COUNT):
+		if cooldowns[i] <= 0.0 and weapon_codes[i] > 0 and ((weapon_codes[i] - 1) >> 2) == weapon_id:
+			copies.append(i)
+	for i in range(copies.size()):
+		cooldowns[copies[i]] = minf(0.10, interval / (copies.size() + 1)) * (i + 1)
 
 
 func replicate(frame: PackedFloat32Array, start: int) -> void:
@@ -213,8 +221,12 @@ func _draw_weapon(slot: int) -> void:
 	if melee and flash > 0.0:
 		var slash := Color("#fff2cb")
 		slash.a = flash * 0.82
-		draw_arc(mount, 30.0 + 15.0 * (1.0 - flash), angle - 0.58, angle + 0.58,
-				12, slash, 3.1, true)
+		if spec.has("thrust"):
+			draw_line(mount + direction * 22.0, mount + direction * (48.0 + 18.0 * (1.0 - flash)),
+					slash, 3.1, true)
+		else:
+			var arc: float = spec["arc"]
+			draw_arc(mount, 30.0 + 15.0 * (1.0 - flash), angle - arc, angle + arc, 12, slash, 3.1, true)
 
 
 func _draw_gear(id: int, tint: Color) -> void:
