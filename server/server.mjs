@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 
 const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 const capacity = 4;
-const protocol = 2;
+const protocol = 3;
 const roomLimit = 128;
 const idleMs = 25_000;
 const bodyLimit = 256 * 1024;

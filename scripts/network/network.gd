@@ -17,7 +17,7 @@ const HOST_ID := 1
 const ROOM_CAPACITY := 4
 const SIGNAL_INTERVAL := 0.20
 const RTC_TIMEOUT_MS := 18000
-const ROOM_PROTOCOL := 2
+const ROOM_PROTOCOL := 3
 
 var state: int = State.IDLE
 var room_code := ""

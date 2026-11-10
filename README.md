@@ -6,6 +6,7 @@
 
 从仓库克隆后，先按下文的导出步骤生成 `web/index.html`。在项目根目录用 Node.js 20 或更高版本运行 `node server/server.mjs`，打开 [本机游戏](http://127.0.0.1:8787)。
 
+- **语言和音效**可在右上角切换。首次默认为 English，切换后即时生效。网页保留当前标签页的设置供刷新时使用，最近保存的偏好作为新标签页的默认值。桌面版将偏好保存在 `user://settings.cfg`。
 - **单机**：点 **Deploy Solo**，选择角色和初始武器，再点 **Deploy**。
 - **联机**：一个窗口点 **Create Room**，其余窗口在同一地址输入六位房间码并点 **Join**。每人选择自己的角色和武器，客机点 **Ready Up**，房主点 **Deploy**。开局后本轮锁定战斗席，退房者可重新输入码观战。房主开始新一局时重新开放战斗席。更新版本后请刷新所有窗口。
 - **观战**：输入同一房间码后点 **Watch**。大厅、战斗、波间和结算都可加入，包括四个战斗席满员时。观众看到公开战斗画面和队伍状态，可随时点 **Leave** 退出。观战不占战斗席，不计入难度、掉落和准备人数。
@@ -33,13 +34,18 @@ node server/server.mjs
 | `scripts/game/player.gd`、`enemy.gd`、`world_view.gd`、`sounds.gd` | 角色状态、敌人行为、效果与程序音效 |
 | `scripts/network/` | WebRTC 战斗同步、房间信令和只读观战流 |
 | `scripts/ui/interface.gd` | 菜单、角色选择、HUD、升级与个人商店 |
+| `scripts/settings.gd`、`i18n/zh_CN.po` | 本地偏好及简体中文译文 |
 | `server/server.mjs` | 同源网页托管与房间信令 |
+
+简体中文界面使用 Bestato UI 字体。它是 Noto Sans CJK SC Regular 2.004 的界面用字子集，随附 [SIL OFL 1.1 许可证](assets/fonts/OFL-NotoSansCJK.txt)。新增译文时需确认字体涵盖所用字符。[Noto CJK 字体源](https://github.com/notofonts/noto-cjk/tree/Sans2.004/Sans)
 
 ## 联机部署
 
 房主是 Peer 1。信令服务以六位房间码管理内存中的房间，转发 SDP/ICE。每位客机与房主建立一条 WebRTC 连接，房主负责刷怪、弹丸、伤害、材料分配与交易校验。位置和战斗画面走短周期快照，个人构筑和商店命令走可靠 RPC，命令附带版本号以阻止旧界面重复扣款。服务器确认战斗席锁定后，房主才开始模拟第一波。
 
 有观众时，房主以约 8 Hz 上传一份公开快照，服务器通过 `/spectate` 的 SSE 流转发。应用层没有观众席位上限，实际容量取决于服务器连接数和出口带宽。个人商店和输入权限留在战斗连接上。房主退出时，服务器关闭房间与观战流。
+
+每波开始时，房主按当时仍连接的战斗玩家人数确定刷怪、敌人生命、伤害及掉落缩放。战斗 HUD 显示该波的人数和敌人倍率，客机和观众看到同一数值。波中掉线后，下一波按剩余战斗玩家人数重新计算。
 
 异地试玩时，把 Node 服务通过 HTTPS 反向代理对外提供，保持网页、`/signal` 和 `/spectate` 同源。反向代理需要流式转发 `/spectate`，并允许长连接。默认监听 `127.0.0.1:8787`，可用 `HOST` 和 `PORT` 修改。默认 ICE 使用公共 STUN，严格 NAT 环境可在 `ICE_SERVERS` 加入自己的 TURN 并重启服务。
 

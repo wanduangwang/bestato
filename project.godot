@@ -8,6 +8,7 @@ config/features=PackedStringArray("4.3", "GL Compatibility")
 
 [autoload]
 
+Settings="*res://scripts/settings.gd"
 Network="*res://scripts/network/network.gd"
 
 [display]
@@ -37,6 +38,10 @@ move_down={
 "deadzone": 0.5,
 "events": [Object(InputEventKey,"physical_keycode":83)]
 }
+
+[internationalization]
+
+locale/translations=PackedStringArray("res://i18n/zh_CN.po")
 
 [rendering]
 

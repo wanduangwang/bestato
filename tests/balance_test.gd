@@ -3,6 +3,7 @@ extends SceneTree
 const Balance = preload("res://scripts/game/balance.gd")
 const Build = preload("res://scripts/game/build.gd")
 const Catalog = preload("res://scripts/game/catalog.gd")
+const Enemy = preload("res://scripts/game/enemy.gd")
 const Waves = preload("res://scripts/game/waves.gd")
 const Stat = Catalog.Stat
 
@@ -12,6 +13,7 @@ var _failures := 0
 func _initialize() -> void:
 	seed(132)
 	_test_coop()
+	_test_next_wave_size()
 	_test_progression()
 	_test_shop()
 	if _failures == 0:
@@ -44,6 +46,27 @@ func _test_coop() -> void:
 				"Co-op per-player income ratio changed.")
 	_expect(is_equal_approx(Balance.enemy_hp_scale(4), 1.9), "Four-player health multiplier changed.")
 	_expect(is_equal_approx(Balance.enemy_damage_scale(4), 1.24), "Four-player damage multiplier changed.")
+
+
+func _test_next_wave_size() -> void:
+	var waves := Waves.new()
+	waves.begin(4)
+	for tick in range(20 * 60):
+		waves.advance(1.0 / 60.0)
+	waves.begin(3)
+	var spawned := 0
+	for tick in range(25 * 60):
+		spawned += waves.advance(1.0 / 60.0)
+	_expect(waves.number == 2 and waves.team_size == 3 and spawned == 37,
+		"Wave two kept the four-player spawn budget.")
+	var foe := Enemy.new()
+	foe.configure(Enemy.Kind.TANK, waves.number, waves.team_size)
+	_expect(foe.max_hp == 48 and foe.contact_damage == 5, "Wave two used incorrect enemy stats.")
+	foe.free()
+	var drop_total := 0
+	for i in range(100):
+		drop_total += waves.material_value(1)
+	_expect(drop_total == 170, "Wave two used incorrect material scaling.")
 
 
 func _test_progression() -> void:

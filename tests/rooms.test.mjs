@@ -20,13 +20,13 @@ test("four combat seats and an independent read-only audience", { timeout: 15_00
     const response = await fetch(base + "/signal", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action, version: 2, ...fields }),
+      body: JSON.stringify({ action, version: 3, ...fields }),
     });
     return { status: response.status, data: response.status === 204 ? null : await response.json() };
   };
   const sync = ({ code, token }, fields = {}) => post("sync", { code, token, ...fields });
 
-  assert.equal((await post("create", { version: 1 })).status, 426);
+  assert.equal((await post("create", { version: 2 })).status, 426);
   assert.equal((await post("watch", { code: "000000" })).status, 404);
   const host = (await post("create")).data;
   const { code } = host;
@@ -65,6 +65,7 @@ test("four combat seats and an independent read-only audience", { timeout: 15_00
   const viewers = await Promise.all(Array.from({ length: 40 }, connectViewer));
   assert.equal((await sync(host)).data.viewers, 40);
   assert.equal((await sync({ code, token: watch.watchKey }, { seats: "open" })).status, 403);
+  assert.equal((await post("publish", { code, token: watch.watchKey, frame: "T0s=" })).status, 403);
   assert.equal((await post("publish", { ...guests[0], frame: "T0s=" })).status, 403);
   assert.equal((await sync(guests[0], { seats: "lock", active: [1] })).data.locked, false);
 
@@ -72,7 +73,10 @@ test("four combat seats and an independent read-only audience", { timeout: 15_00
   assert.equal(locked.data.locked, true);
   assert.deepEqual(locked.data.events, [{ type: "peer_left", peer: 4 }]);
   assert.equal((await sync(guests[2])).status, 403);
-  assert.match((await post("join", { code })).data.error, /in progress/i);
+  assert.equal((await post("leave", guests[1])).status, 200);
+  const bypass = await post("join", { code, token: watch.watchKey, seats: "open", id: guests[1].id });
+  assert.equal(bypass.status, 409);
+  assert.match(bypass.data.error, /in progress/i);
   assert.equal((await post("publish", { ...host, frame: "T0s=" })).status, 204);
   await Promise.all(viewers.map((read) => read("data: T0s=\n\n")));
 

@@ -149,7 +149,7 @@ static func crit_chance(spec: Dictionary, stats: PackedInt32Array) -> float:
 static func stat_text(stat_id: int, amount: int) -> String:
 	var sign_text := "+" if amount >= 0 else ""
 	var suffix := "%" if stat_id in PERCENT_STATS else ""
-	return "%s%d%s %s" % [sign_text, amount, suffix, STAT_NAMES[stat_id]]
+	return "%s%d%s %s" % [sign_text, amount, suffix, TranslationServer.translate(STAT_NAMES[stat_id])]
 
 
 static func effects_text(effects: Dictionary) -> String:

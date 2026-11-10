@@ -32,14 +32,12 @@ func watch(origin: String, code: String, key: String) -> bool:
 		return false
 	_callbacks.assign([
 		JavaScriptBridge.create_callback(_on_frame),
-		JavaScriptBridge.create_callback(_on_open),
 		JavaScriptBridge.create_callback(_on_error),
 		JavaScriptBridge.create_callback(_on_closed),
 	])
 	_source.onmessage = _callbacks[0]
-	_source.onopen = _callbacks[1]
-	_source.onerror = _callbacks[2]
-	_source.addEventListener("room_closed", _callbacks[3])
+	_source.onerror = _callbacks[1]
+	_source.addEventListener("room_closed", _callbacks[2])
 	_connect_deadline = Time.get_ticks_msec() + CONNECT_TIMEOUT_MS
 	status_changed.emit("Connecting to the spectator feed...")
 	return true
@@ -79,11 +77,6 @@ func _process(_delta: float) -> void:
 		closed.emit("The spectator feed timed out.")
 
 
-func _on_open(_args: Array) -> void:
-	_connect_deadline = 0
-	status_changed.emit("Live spectator feed")
-
-
 func _on_error(_args: Array) -> void:
 	if _connect_deadline == 0:
 		_connect_deadline = Time.get_ticks_msec() + CONNECT_TIMEOUT_MS
@@ -106,3 +99,6 @@ func _on_frame(args: Array) -> void:
 	if frame is Array and frame.size() == 5 and frame[0] is PackedInt32Array and frame[1] is float \
 			and frame[2] is PackedFloat32Array and frame[3] is PackedFloat32Array and frame[4] is PackedFloat32Array:
 		frame_received.emit(frame[0], frame[1], frame[2], frame[3], frame[4])
+		if _connect_deadline > 0:
+			_connect_deadline = 0
+			status_changed.emit("Live spectator feed")

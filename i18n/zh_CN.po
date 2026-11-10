@@ -1,0 +1,690 @@
+# Simplified Chinese translations for bestato.
+msgid ""
+msgstr ""
+"Project-Id-Version: bestato\n"
+"Language: zh_CN\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=1; plural=0;\n"
+
+msgid "Switch language"
+msgstr "切换语言"
+
+msgid "SFX ON"
+msgstr "音效开"
+
+msgid "SFX OFF"
+msgstr "音效关"
+
+msgid "EXIT"
+msgstr "退出"
+
+msgid "LEAVE"
+msgstr "离开"
+
+msgid "ARENA SURVIVAL   /   20 WAVES"
+msgstr "竞技场生存   /   20 波"
+
+msgid "WASD  MOVE   •   WEAPONS FIRE AUTOMATICALLY"
+msgstr "WASD 移动   ·   武器自动攻击"
+
+msgid "WAVE SURVIVAL   /   SOLO OR CO-OP"
+msgstr "波次生存   /   单人或合作"
+
+msgid "Outrun\nthe swarm."
+msgstr "甩开怪群，\n杀出重围。"
+
+msgid "Wield up to six weapons, gather materials\nand build your loadout between waves."
+msgstr "最多装备六把武器，搜集材料，\n在波次间强化你的配装。"
+
+msgid "DEPLOY SOLO"
+msgstr "单人游戏"
+
+msgid "ONLINE   /   2–4 PLAYERS + SPECTATORS"
+msgstr "在线   /   2–4 人合作，可观战"
+
+msgid "CREATE ROOM"
+msgstr "创建房间"
+
+msgid "CODE"
+msgstr "房间码"
+
+msgid "JOIN"
+msgstr "加入"
+
+msgid "WATCH"
+msgstr "观战"
+
+msgid "DODGE  •  LOOT  •  REARM"
+msgstr "闪避   ·   拾取   ·   强化"
+
+msgid "Invite friends with a room code."
+msgstr "用房间码邀请好友。"
+
+msgid "SPECTATING"
+msgstr "正在观战"
+
+msgid "HP   %d / %d    •    LV %d"
+msgstr "生命 %d / %d   ·   %d 级"
+
+msgid "SYNCING LOADOUT"
+msgstr "正在同步配装"
+
+msgid "%d / %d XP"
+msgstr "经验 %d / %d"
+
+msgid "%d MATERIALS"
+msgstr "%d 材料"
+
+msgid "BAG  %d"
+msgstr "材料袋 %d"
+
+msgid "WAITING FOR DEPLOYMENT"
+msgstr "等待开战"
+
+msgid "PREPARE YOUR LOADOUT"
+msgstr "准备你的配装"
+
+msgid "LOBBY"
+msgstr "大厅"
+
+msgid "READY?"
+msgstr "就绪？"
+
+msgid "WAVE %02d / 20"
+msgstr "第 %02d / 20 波"
+
+msgid "%dP • Spawn ×%.2f • HP ×%.2f • DMG ×%.2f"
+msgstr "%d 人 · 刷怪 ×%.2f · 生命 ×%.2f · 伤害 ×%.2f"
+
+msgid "CLEAR"
+msgstr "已清场"
+
+msgid "DOWN"
+msgstr "倒下"
+
+msgid "SOLO RUN"
+msgstr "单人模式"
+
+msgid "ROOM  %s"
+msgstr "房间 %s"
+
+msgid "%d ELIMINATED"
+msgstr "击败 %d 只"
+
+msgid "YOU"
+msgstr "你"
+
+msgid "%d/%d HP"
+msgstr "生命 %d/%d"
+
+msgid "Syncing your loadout..."
+msgstr "正在同步你的配装……"
+
+msgid "Syncing spectator view..."
+msgstr "正在同步观战画面……"
+
+msgid "Waiting for the squad"
+msgstr "等待小队就绪"
+
+msgid "Between waves"
+msgstr "波次间歇"
+
+msgid "Watch the match as soon as the host deploys."
+msgstr "房主开战后即可观看。"
+
+msgid "%d / %d players ready for the next wave."
+msgstr "%d / %d 名玩家已准备进入下一波。"
+
+msgid "CHOOSE YOUR LOADOUT"
+msgstr "选择配装"
+
+msgid "COPIED"
+msgstr "已复制"
+
+msgid "CODE  %s  •  COPY"
+msgstr "房间码 %s  ·  复制"
+
+msgid "01   CHARACTER"
+msgstr "01   角色"
+
+msgid "02   STARTING WEAPON"
+msgstr "02   初始武器"
+
+msgid "Solo   /   20 waves"
+msgstr "单人   /   20 波"
+
+msgid "%d/4 players   •   %d ready"
+msgstr "%d/4 名玩家   ·   %d 人就绪"
+
+msgid "   •   %d watching"
+msgstr "   ·   %d 人观战"
+
+msgid "DANGER %d"
+msgstr "危险等级 %d"
+
+msgid "DEPLOY"
+msgstr "开战"
+
+msgid "UNREADY"
+msgstr "取消准备"
+
+msgid "READY UP"
+msgstr "准备"
+
+msgid "LOCKING SEATS..."
+msgstr "正在锁定战斗席……"
+
+msgid "WAITING FOR SQUAD"
+msgstr "等待小队就绪"
+
+msgid "LEVEL UP"
+msgstr "升级"
+
+msgid "Choose one upgrade   •   %d pending"
+msgstr "选择一项升级   ·   还剩 %d 次"
+
+msgid "TIER  %s"
+msgstr "品质 %s"
+
+msgid "SELECT"
+msgstr "选择"
+
+msgid "REROLL  %d"
+msgstr "刷新 %d"
+
+msgid "%d materials available"
+msgstr "可用材料 %d"
+
+msgid "LOOT CRATE   /   TIER %s"
+msgstr "战利品箱   /   品质 %s"
+
+msgid "RECYCLE FOR MATERIALS"
+msgstr "回收换材料"
+
+msgid "TAKE ITEM"
+msgstr "收下道具"
+
+msgid "ITEM LIMIT REACHED"
+msgstr "已达持有上限"
+
+msgid "THE SHOP"
+msgstr "商店"
+
+msgid "WAVE %02d COMPLETE"
+msgstr "第 %02d 波结束"
+
+msgid "   •   NEXT  %s"
+msgstr "   ·   下一波 %s"
+
+msgid "ARSENAL   %d / 6"
+msgstr "武器栏 %d / 6"
+
+msgid "%d / %d ready   •   HP refills next wave"
+msgstr "%d / %d 人已就绪   ·   下一波回满生命"
+
+msgid "BUILD"
+msgstr "构筑详情"
+
+msgid "READY / NEXT WAVE"
+msgstr "准备进入下一波"
+
+msgid "SOLD"
+msgstr "已售出"
+
+msgid "WEAPON"
+msgstr "武器"
+
+msgid "PASSIVE"
+msgstr "被动道具"
+
+msgid "%s   /   TIER %s"
+msgstr "%s   /   品质 %s"
+
+msgid "BUY  %d"
+msgstr "购买 %d"
+
+msgid "Arsenal full. Combine or recycle a weapon first."
+msgstr "武器栏已满。请先合并或出售一把武器。"
+
+msgid "Item limit reached."
+msgstr "已达道具持有上限。"
+
+msgid "UNLOCK"
+msgstr "解锁"
+
+msgid "LOCK"
+msgstr "锁定"
+
+msgid "Keep this offer and its price through rerolls and later waves."
+msgstr "锁住这件商品和价格，刷新或进入下一波后仍会保留。"
+
+msgid "EMPTY SLOT"
+msgstr "空位"
+
+msgid "MERGE"
+msgstr "合并"
+
+msgid "Merge two identical weapons of this tier to upgrade one."
+msgstr "合并两把同名同品质的武器，提升一档品质。"
+
+msgid "SELL"
+msgstr "出售"
+
+msgid "Recycle this weapon for materials."
+msgstr "回收这把武器换取材料。"
+
+msgid "YOUR BUILD"
+msgstr "我的构筑"
+
+msgid "BACK TO SHOP"
+msgstr "返回商店"
+
+msgid "STATS"
+msgstr "属性"
+
+msgid "ITEMS"
+msgstr "道具"
+
+msgid "%d Max HP"
+msgstr "%d 最大生命"
+
+msgid "No passive items collected yet."
+msgstr "还没有被动道具。"
+
+msgid "RUN REPORT"
+msgstr "战局结算"
+
+msgid "Extraction complete"
+msgstr "成功突围"
+
+msgid "Squad down"
+msgstr "小队倒下"
+
+msgid "%d kills   •   Wave %02d of 20   •   Danger %d"
+msgstr "击败 %d 只   ·   第 %02d / 20 波   ·   危险 %d"
+
+msgid "NEW RUN"
+msgstr "再来一局"
+
+msgid "Waiting for the host to start a new run."
+msgstr "等待房主开始新一局。"
+
+msgid "   •   Thrust"
+msgstr "   ·   突刺"
+
+msgid "   •   Sweep"
+msgstr "   ·   横扫"
+
+msgid "%s\n%d dmg   •   %.2fs"
+msgstr "%s\n%d 伤害   ·   %.2f 秒"
+
+msgid "   •   %d pellets"
+msgstr "   ·   %d 发弹丸"
+
+msgid "\n%d range   •   %.0f%% crit"
+msgstr "\n%d 射程   ·   %.0f%% 暴击"
+
+msgid "SET BONUSES   /   %s"
+msgstr "套装加成   /   %s"
+
+msgid "Match two weapon classes"
+msgstr "装备两把同类武器"
+
+msgid "Match two weapons that share a class to earn a set bonus."
+msgstr "两把武器有相同类别时，可获得套装加成。"
+
+msgid "%d HP   /   %+d%% DMG   /   %+d%% ATK SPD   /   %d ARMOR   /   %d HARVEST"
+msgstr "%d 生命   /   %+d%% 伤害   /   %+d%% 攻速   /   %d 护甲   /   %d 收获"
+
+msgid "TWIN BOSSES"
+msgstr "双首领"
+
+msgid "FINAL BOSS"
+msgstr "最终首领"
+
+msgid "ELITE"
+msgstr "精英"
+
+msgid "HORDE"
+msgstr "怪潮"
+
+msgid "Standard run with one final boss."
+msgstr "标准难度，终波有一位首领。"
+
+msgid "Adds nest enemies in later waves."
+msgstr "后期加入孵化巢敌人。"
+
+msgid "Adds an elite on wave 11."
+msgstr "第 11 波加入一只精英。"
+
+msgid "Enemies gain 12% health and damage."
+msgstr "敌人的生命和伤害增加 12%。"
+
+msgid "Enemies gain 26% health and damage. Adds wave 15 horde and wave 18 elite."
+msgstr "敌人的生命和伤害增加 26%。第 15 波有怪潮，第 18 波有精英。"
+
+msgid "Enemies gain 40% health and damage. Two bosses in the final wave."
+msgstr "敌人的生命和伤害增加 40%。终波有两位首领。"
+
+msgid "DODGE"
+msgstr "闪避"
+
+msgid "CRATE"
+msgstr "宝箱"
+
+msgid "Max HP"
+msgstr "最大生命"
+
+msgid "HP Regeneration"
+msgstr "生命恢复"
+
+msgid "Life Steal"
+msgstr "生命偷取"
+
+msgid "Damage"
+msgstr "伤害"
+
+msgid "Melee Damage"
+msgstr "近战伤害"
+
+msgid "Ranged Damage"
+msgstr "远程伤害"
+
+msgid "Attack Speed"
+msgstr "攻击速度"
+
+msgid "Critical Chance"
+msgstr "暴击率"
+
+msgid "Armor"
+msgstr "护甲"
+
+msgid "Dodge"
+msgstr "闪避"
+
+msgid "Speed"
+msgstr "移速"
+
+msgid "Range"
+msgstr "射程"
+
+msgid "Luck"
+msgstr "幸运"
+
+msgid "Harvesting"
+msgstr "收获"
+
+msgid "Pickup Range"
+msgstr "拾取范围"
+
+msgid "Elemental Damage"
+msgstr "元素伤害"
+
+msgid "Shop Prices"
+msgstr "商店价格"
+
+msgid "Explosion Size"
+msgstr "爆炸范围"
+
+msgid "Gun"
+msgstr "枪械"
+
+msgid "Primitive"
+msgstr "原始"
+
+msgid "Blade"
+msgstr "刀刃"
+
+msgid "Precise"
+msgstr "精准"
+
+msgid "Unarmed"
+msgstr "徒手"
+
+msgid "Elemental"
+msgstr "元素"
+
+msgid "Explosive"
+msgstr "爆炸"
+
+msgid "Scrapper"
+msgstr "拾荒者"
+
+msgid "A little tougher, quicker, and better at gathering."
+msgstr "更耐打，跑得更快，也更擅长搜集材料。"
+
+msgid "Lookout"
+msgstr "瞭望手"
+
+msgid "Ranged weapons only. High range and ranged damage, lower health."
+msgstr "仅用远程武器。射程和远程伤害更高，生命较低。"
+
+msgid "Bruiser"
+msgstr "斗士"
+
+msgid "Melee only. Faster swings, stronger hits and better dodge."
+msgstr "仅用近战武器。出手更快，打得更重，也更擅长闪避。"
+
+msgid "Grower"
+msgstr "种植者"
+
+msgid "Harvests extra materials each wave. Slower with weaker hits."
+msgstr "每波额外收获材料，移速和伤害较低。"
+
+msgid "Sidearm"
+msgstr "手枪"
+
+msgid "SMG"
+msgstr "冲锋枪"
+
+msgid "Scattergun"
+msgstr "霰弹枪"
+
+msgid "Carbine"
+msgstr "卡宾枪"
+
+msgid "Slingshot"
+msgstr "弹弓"
+
+msgid "Shuriken"
+msgstr "手里剑"
+
+msgid "Knife"
+msgstr "短刀"
+
+msgid "Spear"
+msgstr "长矛"
+
+msgid "Cudgel"
+msgstr "短棍"
+
+msgid "Gloves"
+msgstr "拳套"
+
+msgid "Cleaver"
+msgstr "砍刀"
+
+msgid "Spark Wand"
+msgstr "火花法杖"
+
+msgid "Rocket Tube"
+msgstr "火箭筒"
+
+msgid "Heavy Vest"
+msgstr "重型背心"
+
+msgid "Coffee"
+msgstr "咖啡"
+
+msgid "Gym Badge"
+msgstr "健身徽章"
+
+msgid "Seed Pouch"
+msgstr "种子袋"
+
+msgid "Bandage Roll"
+msgstr "绷带卷"
+
+msgid "Running Shoes"
+msgstr "跑鞋"
+
+msgid "Field Lens"
+msgstr "视野镜片"
+
+msgid "Lucky Bean"
+msgstr "幸运豆"
+
+msgid "Rubber Soles"
+msgstr "橡胶鞋底"
+
+msgid "Magnet Ring"
+msgstr "磁力指环"
+
+msgid "Training Weight"
+msgstr "训练负重"
+
+msgid "Powder Flask"
+msgstr "火药瓶"
+
+msgid "Copper Coil"
+msgstr "铜线圈"
+
+msgid "Shop Coupon"
+msgstr "商店优惠券"
+
+msgid "Serrated Teeth"
+msgstr "锯齿义牙"
+
+msgid "Cracked Scope"
+msgstr "裂纹瞄具"
+
+msgid "Reactor Cell"
+msgstr "反应堆电芯"
+
+msgid "Packed Lunch"
+msgstr "便当"
+
+msgid "Lucky Spore"
+msgstr "幸运孢子"
+
+msgid "Steel Knuckles"
+msgstr "钢指虎"
+
+msgid "Glass Core"
+msgstr "玻璃核心"
+
+msgid "Sprout Serum"
+msgstr "萌芽血清"
+
+msgid "Meteor Seed"
+msgstr "陨星种子"
+
+msgid "Titan Shell"
+msgstr "泰坦甲壳"
+
+msgid "Enter a six-character room code."
+msgstr "请输入六位房间码。"
+
+msgid "Open the Web export to play online."
+msgstr "请在网页版中联机。"
+
+msgid "Creating room..."
+msgstr "正在创建房间……"
+
+msgid "Looking up room..."
+msgstr "正在查找房间……"
+
+msgid "Could not reach the signaling server."
+msgstr "无法连接信令服务器。"
+
+msgid "The room request failed."
+msgstr "房间请求失败。"
+
+msgid "Could not open the spectator feed."
+msgstr "无法打开观战直播。"
+
+msgid "Could not start WebRTC."
+msgstr "无法启动 WebRTC。"
+
+msgid "Share the room code with your squad."
+msgstr "把房间码分享给队友。"
+
+msgid "Connecting directly to the host..."
+msgstr "正在直连房主……"
+
+msgid "Connected. Waiting for the host to start."
+msgstr "连接成功，等待房主开战。"
+
+msgid "Squadmate connected."
+msgstr "队友已连接。"
+
+msgid "A squadmate disconnected."
+msgstr "一名队友已掉线。"
+
+msgid "The host disconnected."
+msgstr "房主已掉线。"
+
+msgid "A peer could not connect. These networks may need TURN."
+msgstr "有队友无法连接，当前网络可能需要 TURN 中继。"
+
+msgid "Direct connection failed. These networks may need TURN."
+msgstr "直连失败，当前网络可能需要 TURN 中继。"
+
+msgid "Connecting to the spectator feed..."
+msgstr "正在连接观战直播……"
+
+msgid "The spectator feed timed out."
+msgstr "观战直播连接超时。"
+
+msgid "Live spectator feed"
+msgstr "实时观战"
+
+msgid "Reconnecting to the spectator feed..."
+msgstr "正在重连观战直播……"
+
+msgid "The host closed the room."
+msgstr "房主已关闭房间。"
+
+msgid "Only the host can publish a frame."
+msgstr "只有房主可以发布观战画面。"
+
+msgid "Invalid spectator frame."
+msgstr "观战画面数据无效。"
+
+msgid "Use GET for the spectator feed."
+msgstr "请用 GET 请求观战直播。"
+
+msgid "Use POST for signaling."
+msgstr "请用 POST 发送信令。"
+
+msgid "Signaling request is too large."
+msgstr "信令请求过大。"
+
+msgid "Invalid signaling request."
+msgstr "信令请求无效。"
+
+msgid "Reload the game to get the current room version."
+msgstr "请刷新游戏以加载当前房间版本。"
+
+msgid "Room server is full."
+msgstr "房间服务器已满。"
+
+msgid "Room not found or the host left."
+msgstr "找不到房间，或房主已离开。"
+
+msgid "Run in progress. Choose Watch."
+msgstr "战局已开始，请选择「观战」。"
+
+msgid "This room is full. Choose Watch."
+msgstr "房间已满，请选择「观战」。"
+
+msgid "Your room slot has expired."
+msgstr "你的战斗席已失效。"
+
+msgid "Unknown signaling action."
+msgstr "未知的信令操作。"
+
+msgid "Invalid request."
+msgstr "请求无效。"

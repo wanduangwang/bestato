@@ -57,12 +57,12 @@ func _draw() -> void:
 			Mark.BLAST:
 				var color := Color(1.0, 0.70, 0.36, _frame[i + 4] * 2.3)
 				draw_arc(point, info * (1.0 - _frame[i + 4]), 0.0, TAU, 24, color, 4.0, true)
-	var font := ThemeDB.fallback_font
+	var font := Settings.ui_font()
 	for item in _notices:
 		var point: Vector2 = item["point"] + Vector2(0, -20.0 - (0.55 - item["life"]) * 45.0)
 		var tint: Color = item["tint"]
 		tint.a = clampf(item["life"] * 4.0, 0.0, 1.0)
-		var label: String = item["label"]
+		var label := tr(item["label"])
 		var points: int = item["size"]
 		point.x -= font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, points).x * 0.5
 		draw_string_outline(font, point, label, HORIZONTAL_ALIGNMENT_LEFT, -1, points, 4, INK)

@@ -65,7 +65,9 @@ var _frame_timer := 0.0
 
 func _ready() -> void:
 	sounds = Sounds.new()
+	sounds.muted = Settings.sound_muted
 	add_child(sounds)
+	Settings.sound_changed.connect(func(muted: bool) -> void: sounds.muted = muted)
 	_view = WorldView.new()
 	_view.z_index = 3
 	add_child(_view)
@@ -922,15 +924,15 @@ func _send_snapshot(world: PackedFloat32Array) -> void:
 		horde.append_array(PackedFloat32Array([id, enemy.position.x, enemy.position.y,
 			enemy.hp, enemy.max_hp, enemy.kind, enemy.mode, enemy.aim.angle()]))
 	var info := PackedInt32Array([waves.phase, waves.number, waves.bag, waves.kills,
-		waves.ready_count, waves.danger])
+		waves.ready_count, waves.danger, waves.team_size])
 	Network.send_snapshot(info, waves.remaining, roster, horde, world)
 
 
 func _receive_snapshot(info: PackedInt32Array, time_left: float, roster: PackedFloat32Array,
 		horde: PackedFloat32Array, world: PackedFloat32Array) -> void:
-	if info.size() != 6 or roster.size() % PLAYER_STRIDE != 0 or horde.size() % ENEMY_STRIDE != 0:
+	if info.size() != 7 or roster.size() % PLAYER_STRIDE != 0 or horde.size() % ENEMY_STRIDE != 0:
 		return
-	if world.size() % WorldView.STRIDE != 0:
+	if world.size() % WorldView.STRIDE != 0 or info[6] < 1 or info[6] > Network.ROOM_CAPACITY:
 		return
 	var new_wave := waves.number != info[1]
 	var old_phase := waves.phase
@@ -940,6 +942,7 @@ func _receive_snapshot(info: PackedInt32Array, time_left: float, roster: PackedF
 	waves.kills = info[3]
 	waves.ready_count = info[4]
 	waves.danger = info[5]
+	waves.team_size = info[6]
 	waves.remaining = time_left
 	if waves.phase == Phase.WAVE and (old_phase != Phase.WAVE or new_wave):
 		sounds.play(Sounds.Cue.DEPLOY)

@@ -3,6 +3,7 @@ extends CanvasLayer
 const Arena = preload("res://scripts/game/arena.gd")
 const Catalog = preload("res://scripts/game/catalog.gd")
 const Build = preload("res://scripts/game/build.gd")
+const Balance = preload("res://scripts/game/balance.gd")
 const Player = preload("res://scripts/game/player.gd")
 const Enemy = preload("res://scripts/game/enemy.gd")
 const Waves = preload("res://scripts/game/waves.gd")
@@ -41,6 +42,7 @@ var _bag: Label
 var _time: Label
 var _wave: Label
 var _room: Label
+var _scaling: Label
 var _hp_bar: ProgressBar
 var _xp_bar: ProgressBar
 var _team: Array[Label] = []
@@ -50,15 +52,39 @@ var _inspect := false
 
 
 func _ready() -> void:
+	Settings.language_changed.connect(_build_interface)
+	_build_interface()
+
+
+func _build_interface() -> void:
+	var code := ""
+	if is_instance_valid(_root):
+		code = _join_code.text
+		_root.hide()
+		_root.queue_free()
+		_overlay = null
+		_overlay_key = ""
+		_team.clear()
 	_root = Control.new()
 	_root.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	if Settings.language == "zh_CN":
+		var theme := Theme.new()
+		theme.default_font = Settings.ui_font()
+		_root.theme = theme
 	add_child(_root)
 	_build_menu()
+	_join_code.text = code
 	_build_hud()
-	_mute = _button(_root, "SFX ON", Rect2(926, 20, 73, 40), DARK, MUTED, 12)
-	_mute.pressed.connect(_toggle_sound)
+	var language := _button(_root, "中文" if Settings.language == "en" else "EN",
+		Rect2(850, 20, 68, 40), DARK, PAPER, 14)
+	language.add_theme_font_override("font", Settings.cjk_font)
+	language.tooltip_text = tr("Switch language")
+	language.pressed.connect(Settings.toggle_language)
+	_mute = _button(_root, "", Rect2(926, 20, 73, 40), DARK, MUTED, 12)
+	_mute.pressed.connect(Settings.toggle_sound)
 	_leave_button = _button(_root, "EXIT", Rect2(1007, 20, 87, 40))
 	_leave_button.pressed.connect(_leave)
+	_process(0.0)
 
 
 func _build_menu() -> void:
@@ -66,11 +92,12 @@ func _build_menu() -> void:
 	_menu.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_mount(_menu, _root, Rect2(0, 0, 1120, 720))
 	_label(_menu, "bestato", Rect2(27, 18, 450, 46), 29, PAPER)
-	_label(_menu, "ARENA SURVIVAL   /   20 WAVES", Rect2(657, 24, 262, 35), 16, GOLD)
+	_label(_menu, "ARENA SURVIVAL   /   20 WAVES", Rect2(569, 24, 275, 35), 16, GOLD)
 	_label(_menu, "WASD  MOVE   •   WEAPONS FIRE AUTOMATICALLY", Rect2(27, 672, 700, 28), 14, MUTED)
 	var card := _panel(_menu, Rect2(53, 106, 498, 527))
 	_label(card, "WAVE SURVIVAL   /   SOLO OR CO-OP", Rect2(26, 21, 445, 28), 15, GOLD)
-	_label(card, "Outrun\nthe swarm.", Rect2(24, 55, 450, 144), 61, PAPER)
+	var title_size := 48 if Settings.language == "zh_CN" else 61
+	_label(card, "Outrun\nthe swarm.", Rect2(24, 55, 450, 144), title_size, PAPER)
 	_label(card, "Wield up to six weapons, gather materials\nand build your loadout between waves.",
 		Rect2(28, 214, 436, 58), 18, MUTED)
 	_solo_button = _button(card, "DEPLOY SOLO", Rect2(27, 294, 444, 52), LIME, DARK)
@@ -79,7 +106,7 @@ func _build_menu() -> void:
 	_host_button = _button(card, "CREATE ROOM", Rect2(27, 404, 134, 46))
 	_host_button.pressed.connect(Network.create_room)
 	_join_code = LineEdit.new()
-	_join_code.placeholder_text = "CODE"
+	_join_code.placeholder_text = tr("CODE")
 	_join_code.max_length = 6
 	_join_code.alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_join_code.add_theme_font_size_override("font_size", 19)
@@ -135,7 +162,8 @@ func _build_hud() -> void:
 	_center(_wave)
 	_time = _label(_hud, "", Rect2(492, 24, 220, 43), 33, PAPER)
 	_center(_time)
-	_room = _label(_hud, "", Rect2(751, 12, 172, 46), 15, MUTED)
+	_room = _label(_hud, "", Rect2(717, 12, 128, 46), 14, MUTED)
+	_scaling = _label(_hud, "", Rect2(717, 61, 377, 18), 13, MUTED)
 	for i in range(Network.ROOM_CAPACITY):
 		var tag := _panel(_hud, Rect2(26 + i * 270, 674, 258, 30), DARK)
 		_team.append(_label(tag, "", Rect2(10, 1, 238, 28), 14, PAPER))
@@ -149,13 +177,14 @@ func _process(_delta: float) -> void:
 	_menu.visible = in_menu
 	_hud.visible = not in_menu
 	_leave_button.visible = pending or not in_menu
-	_leave_button.text = "LEAVE" if watching else "EXIT"
+	_leave_button.text = tr("LEAVE") if watching else tr("EXIT")
+	_mute.text = tr("SFX OFF") if Settings.sound_muted else tr("SFX ON")
 	_solo_button.disabled = pending
 	_host_button.disabled = pending
 	_join_button.disabled = pending
 	_watch_button.disabled = pending
 	_join_code.editable = not pending
-	_menu_status.text = Network.status if not Network.status.is_empty() else "Invite friends with a room code."
+	_menu_status.text = tr(Network.status) if not Network.status.is_empty() else tr("Invite friends with a room code.")
 	if not in_menu:
 		_update_hud()
 	var phase := arena.waves.phase
@@ -185,34 +214,45 @@ func _update_hud() -> void:
 	var my_id := multiplayer.get_unique_id()
 	var player: Player = arena.players.get(my_id)
 	if watching:
-		_hp.text = "SPECTATING"
-		_watch_status.text = Network.status
+		_hp.text = tr("SPECTATING")
+		_watch_status.text = tr(Network.status)
 	elif player != null:
-		_hp.text = "HP   %d / %d    •    LV %d" % [player.hp, player.max_hp, player.level]
+		_hp.text = tr("HP   %d / %d    •    LV %d") % [player.hp, player.max_hp, player.level]
 		_hp_bar.max_value = player.max_hp
 		_hp_bar.value = player.hp
 	else:
-		_hp.text = "SYNCING LOADOUT"
+		_hp.text = tr("SYNCING LOADOUT")
 		_hp_bar.value = 0
 	_xp_bar.max_value = int(profile.get("xp_goal", 1))
 	_xp_bar.value = int(profile.get("xp", 0))
-	_xp.text = "%d / %d XP" % [profile.get("xp", 0), profile.get("xp_goal", 0)]
-	_wallet.text = "%d MATERIALS" % profile.get("materials", 0)
-	_bag.text = "BAG  %d" % arena.waves.bag
-	if arena.waves.phase == Phase.LOBBY:
-		_wave.text = "WAITING FOR DEPLOYMENT" if watching else "PREPARE YOUR LOADOUT"
-		_time.text = "LOBBY" if watching else "READY?"
+	_xp.text = tr("%d / %d XP") % [profile.get("xp", 0), profile.get("xp_goal", 0)]
+	_wallet.text = tr("%d MATERIALS") % profile.get("materials", 0)
+	_bag.text = tr("BAG  %d") % arena.waves.bag
+	_scaling.visible = arena.waves.phase == Phase.WAVE
+	# The host appears in the roster as soon as the first public frame arrives.
+	var waiting_for_frame := watching and arena.players.is_empty()
+	if waiting_for_frame:
+		_wave.text = ""
+		_time.text = ""
+	elif arena.waves.phase == Phase.LOBBY:
+		_wave.text = tr("WAITING FOR DEPLOYMENT") if watching else tr("PREPARE YOUR LOADOUT")
+		_time.text = tr("LOBBY") if watching else tr("READY?")
 	elif arena.waves.phase == Phase.WAVE:
 		var encounter := arena.waves.encounter(arena.waves.number)
-		_wave.text = "WAVE %02d / 20" % arena.waves.number if encounter.is_empty() else encounter
+		_wave.text = tr("WAVE %02d / 20") % arena.waves.number if encounter.is_empty() else tr(encounter)
 		_time.text = "%02d" % ceili(arena.waves.remaining)
 		_time.add_theme_color_override("font_color", RED if arena.waves.remaining <= 6.0 else PAPER)
+		var size := arena.waves.team_size
+		_scaling.text = tr("%dP • Spawn ×%.2f • HP ×%.2f • DMG ×%.2f") % [
+			size, Balance.enemy_count_scale(size), Balance.enemy_hp_scale(size), Balance.enemy_damage_scale(size)]
 	else:
-		_wave.text = "WAVE %02d / 20" % arena.waves.number
-		_time.text = "CLEAR" if arena.waves.phase in [Phase.SHOP, Phase.VICTORY] else "DOWN"
+		_wave.text = tr("WAVE %02d / 20") % arena.waves.number
+		_time.text = tr("CLEAR") if arena.waves.phase in [Phase.SHOP, Phase.VICTORY] else tr("DOWN")
 		_time.add_theme_color_override("font_color", PAPER)
-	var session := "SOLO RUN" if arena.solo else "ROOM  %s" % Network.room_code
-	_room.text = "%s\n%d ELIMINATED" % [session, arena.waves.kills]
+	var session := tr("SOLO RUN") if arena.solo else tr("ROOM  %s") % Network.room_code
+	_room.text = session
+	if not waiting_for_frame:
+		_room.text += "\n" + tr("%d ELIMINATED") % arena.waves.kills
 	var peers := arena.players.keys()
 	peers.sort()
 	for i in range(_team.size()):
@@ -220,9 +260,9 @@ func _update_hud() -> void:
 		label.get_parent().visible = i < peers.size()
 		if i < peers.size():
 			var member: Player = arena.players[peers[i]]
-			var tag := "YOU" if member.is_local else "P%d" % member.peer_id
-			var name_text: String = Catalog.ORIGINS[member.origin]["name"]
-			var health := "%d/%d HP" % [member.hp, member.max_hp] if member.hp > 0 else "DOWN"
+			var tag := tr("YOU") if member.is_local else "P%d" % member.peer_id
+			var name_text := tr(Catalog.ORIGINS[member.origin]["name"])
+			var health := tr("%d/%d HP") % [member.hp, member.max_hp] if member.hp > 0 else tr("DOWN")
 			label.text = "%s   %s   •   %s" % [tag, name_text, health]
 			label.add_theme_color_override("font_color", Player.COLORS[(member.peer_id - 1) % Player.COLORS.size()])
 
@@ -257,10 +297,13 @@ func _replace_overlay(show_panel: bool) -> void:
 
 func _spectator_overlay(phase: int) -> void:
 	_overlay = _panel(_root, Rect2(334, 212, 452, 112))
+	if arena.players.is_empty():
+		_center(_label(_overlay, "Syncing spectator view...", Rect2(10, 10, 432, 92), 24, PAPER))
+		return
 	var title := "Waiting for the squad" if phase == Phase.LOBBY else "Between waves"
 	var detail := "Watch the match as soon as the host deploys."
 	if phase == Phase.SHOP:
-		detail = "%d / %d players ready for the next wave." % [arena.waves.ready_count, arena.players.size()]
+		detail = tr("%d / %d players ready for the next wave.") % [arena.waves.ready_count, arena.players.size()]
 	_center(_label(_overlay, title, Rect2(10, 12, 432, 39), 24, PAPER))
 	_center(_label(_overlay, detail, Rect2(10, 59, 432, 32), 15, MUTED))
 
@@ -274,7 +317,7 @@ func _loadout(profile: Dictionary) -> void:
 	var origin: Dictionary = Catalog.ORIGINS[own_origin]
 	_label(_overlay, "CHOOSE YOUR LOADOUT", Rect2(24, 18, 688, 44), 31)
 	if online:
-		var copy := _button(_overlay, "COPIED" if _copied else "CODE  %s  •  COPY" % Network.room_code,
+		var copy := _button(_overlay, "COPIED" if _copied else tr("CODE  %s  •  COPY") % Network.room_code,
 			Rect2(735, 19, 235, 41))
 		copy.pressed.connect(_copy_code)
 	_label(_overlay, "01   CHARACTER", Rect2(25, 75, 898, 26), 14, GOLD)
@@ -300,14 +343,14 @@ func _loadout(profile: Dictionary) -> void:
 	_label(_overlay, _weapon_text(own_weapon, 1, stats, true).replace("\n", "   •   "),
 		Rect2(25, 372, 944, 33), 15, MUTED)
 	var is_guest := Network.state == Network.State.CLIENT
-	var room_text := "Solo   /   20 waves" if arena.solo else "%d/4 players   •   %d ready" % [
+	var room_text := tr("Solo   /   20 waves") if arena.solo else tr("%d/4 players   •   %d ready") % [
 		arena.players.size(), arena.waves.ready_count]
 	if Network.state == Network.State.HOST:
-		room_text += "   •   %d watching" % Network.viewer_count
+		room_text += tr("   •   %d watching") % Network.viewer_count
 	_label(_overlay, room_text, Rect2(25, 449, 372, 44), 17, GOLD)
-	var danger := _button(_overlay, "DANGER %d" % arena.waves.danger, Rect2(415, 444, 242, 53))
+	var danger := _button(_overlay, tr("DANGER %d") % arena.waves.danger, Rect2(415, 444, 242, 53))
 	danger.disabled = is_guest
-	danger.tooltip_text = Waves.DANGER_TEXT[arena.waves.danger]
+	danger.tooltip_text = tr(Waves.DANGER_TEXT[arena.waves.danger])
 	danger.pressed.connect(arena.cycle_danger)
 	var ready_text := "DEPLOY"
 	if is_guest:
@@ -325,26 +368,26 @@ func _loadout(profile: Dictionary) -> void:
 func _upgrade(profile: Dictionary) -> void:
 	_overlay = _panel(_root, Rect2(65, 147, 990, 424))
 	_label(_overlay, "LEVEL UP", Rect2(24, 18, 660, 55), 38)
-	_label(_overlay, "Choose one upgrade   •   %d pending" % profile["pending"],
+	_label(_overlay, tr("Choose one upgrade   •   %d pending") % profile["pending"],
 		Rect2(26, 77, 624, 33), 17, MUTED)
 	var options: Array = profile["upgrades"]
 	for i in range(options.size()):
 		var entry: Dictionary = options[i]
 		var card := _panel(_overlay, Rect2(24 + i * 237, 132, 226, 177), CARD, _tier(entry["tier"]))
-		_label(card, "TIER  %s" % Catalog.TIERS[entry["tier"] - 1], Rect2(13, 9, 200, 24), 13, _tier(entry["tier"]))
+		_label(card, tr("TIER  %s") % Catalog.TIERS[entry["tier"] - 1], Rect2(13, 9, 200, 24), 13, _tier(entry["tier"]))
 		_label(card, Catalog.stat_text(entry["stat"], entry["amount"]), Rect2(13, 51, 201, 41), 17)
 		var pick := _button(card, "SELECT", Rect2(12, 120, 202, 43), LIME, DARK)
 		pick.pressed.connect(arena.act.bind(Action.UPGRADE, i))
-	var roll := _button(_overlay, "REROLL  %d" % profile["upgrade_roll"], Rect2(734, 344, 230, 47))
+	var roll := _button(_overlay, tr("REROLL  %d") % profile["upgrade_roll"], Rect2(734, 344, 230, 47))
 	roll.disabled = profile["materials"] < profile["upgrade_roll"]
 	roll.pressed.connect(arena.act.bind(Action.UPGRADE_ROLL))
-	_label(_overlay, "%d materials available" % profile["materials"], Rect2(24, 343, 470, 47), 17, LIME)
+	_label(_overlay, tr("%d materials available") % profile["materials"], Rect2(24, 343, 470, 47), 17, LIME)
 
 
 func _crate(profile: Dictionary) -> void:
 	var item: Dictionary = Catalog.ITEMS[profile["crate"]]
 	_overlay = _panel(_root, Rect2(264, 178, 592, 362))
-	_label(_overlay, "LOOT CRATE   /   TIER %s" % Catalog.TIERS[item["tier"] - 1],
+	_label(_overlay, tr("LOOT CRATE   /   TIER %s") % Catalog.TIERS[item["tier"] - 1],
 		Rect2(25, 20, 542, 28), 15, _tier(item["tier"]))
 	_label(_overlay, item["name"], Rect2(24, 53, 542, 63), 36)
 	_label(_overlay, Catalog.effects_text(item["stats"]), Rect2(27, 137, 535, 87), 19, MUTED)
@@ -353,7 +396,7 @@ func _crate(profile: Dictionary) -> void:
 	var take := _button(_overlay, "TAKE ITEM", Rect2(301, 266, 265, 54), LIME, DARK)
 	take.disabled = not Catalog.item_available(profile["crate"], profile["items"])
 	if take.disabled:
-		take.text = "ITEM LIMIT REACHED"
+		take.text = tr("ITEM LIMIT REACHED")
 	take.pressed.connect(arena.act.bind(Action.CRATE_KEEP))
 
 
@@ -361,12 +404,12 @@ func _shop(profile: Dictionary) -> void:
 	_overlay = _panel(_root, Rect2(35, 96, 1050, 549))
 	_label(_overlay, "THE SHOP", Rect2(18, 10, 475, 48), 33)
 	var next := arena.waves.encounter(arena.waves.number + 1)
-	var subtitle := "WAVE %02d COMPLETE" % arena.waves.number
+	var subtitle := tr("WAVE %02d COMPLETE") % arena.waves.number
 	if not next.is_empty():
-		subtitle += "   •   NEXT  %s" % next
+		subtitle += tr("   •   NEXT  %s") % tr(next)
 	_label(_overlay, subtitle, Rect2(19, 59, 560, 28), 14, GOLD)
-	_label(_overlay, "%d MATERIALS" % profile["materials"], Rect2(641, 23, 189, 36), 19, LIME)
-	var roll := _button(_overlay, "REROLL  %d" % profile["roll"], Rect2(834, 20, 194, 43))
+	_label(_overlay, tr("%d MATERIALS") % profile["materials"], Rect2(641, 23, 189, 36), 19, LIME)
+	var roll := _button(_overlay, tr("REROLL  %d") % profile["roll"], Rect2(834, 20, 194, 43))
 	roll.disabled = profile["ready"] or not profile["can_roll_shop"] or profile["materials"] < profile["roll"]
 	roll.pressed.connect(arena.act.bind(Action.SHOP_ROLL))
 
@@ -374,14 +417,14 @@ func _shop(profile: Dictionary) -> void:
 	for i in range(offers.size()):
 		_offer_card(offers[i], i, profile)
 	var weapons: Array = profile["weapons"]
-	_label(_overlay, "ARSENAL   %d / 6" % weapons.size(), Rect2(19, 296, 218, 29), 16, GOLD)
+	_label(_overlay, tr("ARSENAL   %d / 6") % weapons.size(), Rect2(19, 296, 218, 29), 16, GOLD)
 	var sets := _label(_overlay, _class_line(profile["classes"]), Rect2(222, 296, 805, 29), 14, MUTED)
 	sets.tooltip_text = _class_details(profile["classes"])
 	sets.mouse_filter = Control.MOUSE_FILTER_PASS
 	for i in range(Catalog.SLOT_COUNT):
 		_inventory_card(i, weapons, profile["stats"], profile["ready"])
 	_label(_overlay, _stat_line(profile["stats"]), Rect2(19, 457, 689, 29), 15, MUTED)
-	_label(_overlay, "%d / %d ready   •   HP refills next wave" % [
+	_label(_overlay, tr("%d / %d ready   •   HP refills next wave") % [
 		arena.waves.ready_count, arena.players.size()], Rect2(19, 490, 687, 27), 15, GOLD)
 	var details := _button(_overlay, "BUILD", Rect2(716, 465, 111, 49))
 	details.pressed.connect(_toggle_details)
@@ -398,24 +441,24 @@ func _offer_card(offer: Dictionary, slot: int, profile: Dictionary) -> void:
 		return
 	var weapon: bool = offer["kind"] == Catalog.Offer.WEAPON
 	var spec: Dictionary = Catalog.WEAPONS[offer["id"]] if weapon else Catalog.ITEMS[offer["id"]]
-	var kind := "WEAPON" if weapon else "PASSIVE"
-	_label(card, "%s   /   TIER %s" % [kind, Catalog.TIERS[offer["tier"] - 1]], Rect2(12, 7, 220, 22), 12, accent)
+	var kind := tr("WEAPON") if weapon else tr("PASSIVE")
+	_label(card, tr("%s   /   TIER %s") % [kind, Catalog.TIERS[offer["tier"] - 1]], Rect2(12, 7, 220, 22), 12, accent)
 	_label(card, spec["name"], Rect2(11, 30, 220, 34), 20)
 	var summary := _weapon_text(offer["id"], offer["tier"], profile["stats"], false) if weapon else Catalog.effects_text(spec["stats"])
 	_label(card, summary, Rect2(12, 67, 220, 64), 13, MUTED)
-	var buy := _button(card, "BUY  %d" % offer["price"], Rect2(11, 137, 122, 37), LIME, DARK)
+	var buy := _button(card, tr("BUY  %d") % offer["price"], Rect2(11, 137, 122, 37), LIME, DARK)
 	var space: bool = not weapon or profile["weapons"].size() < Catalog.SLOT_COUNT or _has_match(profile["weapons"], offer)
 	var item_ok := weapon or Catalog.item_available(offer["id"], profile["items"])
 	buy.disabled = profile["ready"] or not space or not item_ok or profile["materials"] < offer["price"]
 	if not space:
-		buy.tooltip_text = "Arsenal full. Combine or recycle a weapon first."
+		buy.tooltip_text = tr("Arsenal full. Combine or recycle a weapon first.")
 	elif not item_ok:
-		buy.tooltip_text = "Item limit reached."
+		buy.tooltip_text = tr("Item limit reached.")
 	buy.pressed.connect(arena.act.bind(Action.BUY, slot))
 	var lock := _button(card, "UNLOCK" if offer["locked"] else "LOCK", Rect2(142, 137, 91, 37),
 		GOLD if offer["locked"] else DARK, DARK if offer["locked"] else PAPER)
 	lock.disabled = profile["ready"]
-	lock.tooltip_text = "Keep this offer and its price through rerolls and later waves."
+	lock.tooltip_text = tr("Keep this offer and its price through rerolls and later waves.")
 	lock.pressed.connect(arena.act.bind(Action.LOCK, slot))
 
 
@@ -425,18 +468,18 @@ func _inventory_card(slot: int, weapons: Array, stats: PackedInt32Array, ready: 
 		_center(_label(card, "EMPTY SLOT", Rect2(9, 16, 141, 77), 13, MUTED))
 		return
 	var weapon: Dictionary = weapons[slot]
-	var name_text: String = Catalog.WEAPONS[weapon["id"]]["name"]
+	var name_text := tr(Catalog.WEAPONS[weapon["id"]]["name"])
 	var label := _label(card, "%s %s" % [name_text, Catalog.TIERS[weapon["tier"] - 1]],
 		Rect2(8, 5, 143, 38), 15, _tier(weapon["tier"]))
 	label.tooltip_text = _weapon_text(weapon["id"], weapon["tier"], stats, true)
 	label.mouse_filter = Control.MOUSE_FILTER_PASS
 	var combine := _button(card, "MERGE", Rect2(7, 55, 70, 38), DARK, PAPER, 12)
 	combine.disabled = ready or not _has_match(weapons, weapon, slot)
-	combine.tooltip_text = "Merge two identical weapons of this tier to upgrade one."
+	combine.tooltip_text = tr("Merge two identical weapons of this tier to upgrade one.")
 	combine.pressed.connect(arena.act.bind(Action.COMBINE, slot))
 	var sell := _button(card, "SELL", Rect2(82, 55, 70, 38), DARK, PAPER, 12)
 	sell.disabled = ready or weapons.size() == 1
-	sell.tooltip_text = "Recycle this weapon for materials."
+	sell.tooltip_text = tr("Recycle this weapon for materials.")
 	sell.pressed.connect(arena.act.bind(Action.RECYCLE, slot))
 
 
@@ -460,7 +503,7 @@ func _build_details(profile: Dictionary) -> void:
 	for i in range(stats.size()):
 		var x := 25 if i < 9 else 304
 		var y := 116 + (i % 9) * 36
-		var text := "%d Max HP" % stats[i] if i == Catalog.Stat.HP else Catalog.stat_text(i, stats[i])
+		var text := tr("%d Max HP") % stats[i] if i == Catalog.Stat.HP else Catalog.stat_text(i, stats[i])
 		_label(_overlay, text, Rect2(x, y, 269, 32), 17, PAPER if stats[i] != 0 else MUTED)
 	var items: Dictionary = profile["items"]
 	var scroll := ScrollContainer.new()
@@ -471,7 +514,7 @@ func _build_details(profile: Dictionary) -> void:
 		_label(list, "No passive items collected yet.", Rect2(0, 0, 321, 32), 17, MUTED)
 	for id: int in items:
 		var item: Dictionary = Catalog.ITEMS[id]
-		var label := _label(list, "%s  ×%d" % [item["name"], items[id]], Rect2(0, 0, 321, 32),
+		var label := _label(list, "%s  ×%d" % [tr(item["name"]), items[id]], Rect2(0, 0, 321, 32),
 			17, _tier(item["tier"]))
 		label.tooltip_text = Catalog.effects_text(item["stats"])
 	_label(_overlay, _class_line(profile["classes"]), Rect2(25, 466, 900, 29), 15, LIME)
@@ -482,7 +525,7 @@ func _result(victory: bool) -> void:
 	_label(_overlay, "RUN REPORT", Rect2(25, 22, 531, 29), 14, GOLD)
 	_label(_overlay, "Extraction complete" if victory else "Squad down",
 		Rect2(23, 55, 540, 75), 43, LIME if victory else RED)
-	_label(_overlay, "%d kills   •   Wave %02d of 20   •   Danger %d" % [
+	_label(_overlay, tr("%d kills   •   Wave %02d of 20   •   Danger %d") % [
 		arena.waves.kills, arena.waves.number, arena.waves.danger],
 		Rect2(26, 151, 534, 44), 18, MUTED)
 	if arena.solo or Network.state == Network.State.HOST:
@@ -494,17 +537,20 @@ func _result(victory: bool) -> void:
 
 func _weapon_text(id: int, tier: int, stats: PackedInt32Array, full: bool) -> String:
 	var spec: Dictionary = Catalog.WEAPONS[id]
-	var family := " / ".join(PackedStringArray(spec["families"]))
+	var families := PackedStringArray()
+	for key: String in spec["families"]:
+		families.append(tr(key))
+	var family := " / ".join(families)
 	var damage := Catalog.weapon_damage(spec, tier, stats)
 	var rate := Catalog.weapon_interval(spec, tier, stats)
 	var pellets := int(spec.get("pellets", 1))
 	if spec.has("arc"):
-		family += "   •   Thrust" if spec.has("thrust") else "   •   Sweep"
-	var text := "%s\n%d dmg   •   %.2fs" % [family, damage, rate]
+		family += tr("   •   Thrust") if spec.has("thrust") else tr("   •   Sweep")
+	var text := tr("%s\n%d dmg   •   %.2fs") % [family, damage, rate]
 	if pellets > 1:
-		text += "   •   %d pellets" % pellets
+		text += tr("   •   %d pellets") % pellets
 	if full:
-		text += "\n%d range   •   %.0f%% crit" % [roundi(Catalog.weapon_reach(spec, stats)), Catalog.crit_chance(spec, stats)]
+		text += tr("\n%d range   •   %.0f%% crit") % [roundi(Catalog.weapon_reach(spec, stats)), Catalog.crit_chance(spec, stats)]
 	return text
 
 
@@ -512,8 +558,8 @@ func _class_line(classes: Dictionary) -> String:
 	var labels := PackedStringArray()
 	for family: String in classes:
 		if int(classes[family]) >= 2:
-			labels.append("%s ×%d" % [family, classes[family]])
-	return "SET BONUSES   /   %s" % ("Match two weapon classes" if labels.is_empty() else "   •   ".join(labels))
+			labels.append("%s ×%d" % [tr(family), classes[family]])
+	return tr("SET BONUSES   /   %s") % (tr("Match two weapon classes") if labels.is_empty() else "   •   ".join(labels))
 
 
 func _class_details(classes: Dictionary) -> String:
@@ -522,13 +568,13 @@ func _class_details(classes: Dictionary) -> String:
 		var count: int = classes[family]
 		if count >= 2:
 			var bonuses := Catalog.effects_text(Catalog.class_bonus(family, count)).replace("\n", ", ")
-			labels.append("%s: %s" % [family, bonuses])
-	return "Match two weapons that share a class to earn a set bonus." if labels.is_empty() else "\n".join(labels)
+			labels.append("%s: %s" % [tr(family), bonuses])
+	return tr("Match two weapons that share a class to earn a set bonus.") if labels.is_empty() else "\n".join(labels)
 
 
 func _stat_line(stats: PackedInt32Array) -> String:
 	var stat := Catalog.Stat
-	return "%d HP   /   %+d%% DMG   /   %+d%% ATK SPD   /   %d ARMOR   /   %d HARVEST" % [
+	return tr("%d HP   /   %+d%% DMG   /   %+d%% ATK SPD   /   %d ARMOR   /   %d HARVEST") % [
 		stats[stat.HP], stats[stat.DAMAGE], stats[stat.ATTACK], stats[stat.ARMOR], stats[stat.HARVEST]]
 
 
@@ -538,11 +584,6 @@ func _tier(tier: int) -> Color:
 
 func _toggle_details() -> void:
 	_inspect = not _inspect
-
-
-func _toggle_sound() -> void:
-	arena.sounds.muted = not arena.sounds.muted
-	_mute.text = "SFX OFF" if arena.sounds.muted else "SFX ON"
 
 
 func _join() -> void:
@@ -591,7 +632,7 @@ func _panel(parent: Control, rect: Rect2, fill := PANEL, edge := LINE) -> Panel:
 
 func _label(parent: Control, value: String, rect: Rect2, points: int, color := PAPER) -> Label:
 	var label := Label.new()
-	label.text = value
+	label.text = tr(value)
 	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	label.add_theme_font_size_override("font_size", points)
 	label.add_theme_color_override("font_color", color)
@@ -616,7 +657,7 @@ func _bar(parent: Control, rect: Rect2, color: Color) -> ProgressBar:
 func _button(parent: Control, value: String, rect: Rect2, fill := DARK, ink := PAPER,
 		points := 15) -> Button:
 	var button := Button.new()
-	button.text = value
+	button.text = tr(value)
 	button.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	button.add_theme_font_size_override("font_size", points)
 	button.add_theme_color_override("font_color", ink)
