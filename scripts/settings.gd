@@ -40,6 +40,9 @@ func ui_font() -> Font:
 
 func _load_preferences() -> Dictionary:
 	if OS.has_feature("web"):
+		if Platform.wechat:
+			var saved: Variant = JSON.parse_string(Platform.read_preferences())
+			return saved if saved is Dictionary else {}
 		# Each tab keeps its own settings through reloads. The browser copy seeds new tabs.
 		var raw: Variant = JavaScriptBridge.eval("""
 			(() => {
@@ -66,6 +69,9 @@ func _load_preferences() -> Dictionary:
 func _save_preferences() -> void:
 	if OS.has_feature("web"):
 		var data := JSON.stringify({"language": language, "sound_muted": sound_muted})
+		if Platform.wechat:
+			Platform.write_preferences(data)
+			return
 		JavaScriptBridge.eval("""
 			(() => {
 				const key = %s, data = %s;

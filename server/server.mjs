@@ -4,6 +4,7 @@ import { stat } from "node:fs/promises";
 import { createServer } from "node:http";
 import { extname, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
+import { attachWechatRelay } from "./wechat-relay.mjs";
 
 const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 const capacity = 4;
@@ -291,6 +292,7 @@ const server = createServer(async (req, res) => {
     else json(res, 400, { error: "Invalid request." });
   }
 });
+attachWechatRelay(server);
 
 setInterval(() => {
   reapRooms();

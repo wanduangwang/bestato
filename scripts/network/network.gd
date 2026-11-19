@@ -1,10 +1,13 @@
 extends Node
 
 const SpectatorFeed = preload("res://scripts/network/spectator_feed.gd")
+const RelayClient = preload("res://scripts/network/relay_client.gd")
 
 signal hosted
 signal session_ended
 signal combat_seats_locked
+signal peer_joined(peer_id: int)
+signal peer_left(peer_id: int)
 signal input_received(peer_id: int, direction: Vector2)
 signal choice_received(peer_id: int, action: int, slot: int, revision: int)
 signal profile_received(profile: Dictionary)
@@ -17,6 +20,7 @@ const HOST_ID := 1
 const ROOM_CAPACITY := 4
 const SIGNAL_INTERVAL := 0.20
 const RTC_TIMEOUT_MS := 18000
+const RTC_CHANNEL_OPEN := 1
 const ROOM_PROTOCOL := 3
 
 var state: int = State.IDLE
@@ -32,7 +36,8 @@ var _token := ""
 var _url := ""
 var _origin := ""
 var _ice_servers: Array = []
-var _rtc: WebRTCMultiplayerPeer
+# The compatible Mini Game engine omits the WebRTC classes.
+var _rtc
 var _http: HTTPRequest
 var _feed: SpectatorFeed
 var _action := ""
@@ -46,9 +51,17 @@ var _remote_sdp: Dictionary = {}
 var _early_ice: Dictionary = {}
 var _outbox: Array[Dictionary] = []
 var _drops: Array[int] = []
+var _relay: RelayClient
+var _relay_id := HOST_ID
 
 
 func _ready() -> void:
+	if Platform.relay_enabled:
+		_relay = RelayClient.new()
+		add_child(_relay)
+		_relay.received.connect(_on_relay_message)
+		_relay.disconnected.connect(_on_relay_disconnected)
+		Platform.backgrounded.connect(_on_backgrounded)
 	_http = HTTPRequest.new()
 	_http.timeout = 6.0
 	_http.body_size_limit = 1024 * 1024
@@ -91,8 +104,15 @@ func leave_room() -> void:
 	_close("")
 
 
+func local_id() -> int:
+	return _relay_id if _relay != null else multiplayer.get_unique_id()
+
+
 func lock_player_seats(roster: Array) -> void:
 	if state == State.HOST and not players_locked and not seat_change_pending:
+		if _relay != null:
+			_change_relay_seats(true, roster)
+			return
 		_seat_change = "lock"
 		_seat_roster = roster.duplicate()
 		_sync_in = 0.0
@@ -100,13 +120,20 @@ func lock_player_seats(roster: Array) -> void:
 
 func open_player_seats() -> void:
 	if state == State.HOST and players_locked:
+		if _relay != null:
+			_change_relay_seats(false, [])
+			return
 		_seat_change = "open"
 		_seat_roster.clear()
 		_sync_in = 0.0
 
 
 func reject_player(peer_id: int) -> void:
-	if state == State.HOST and _connections.has(peer_id):
+	if state != State.HOST:
+		return
+	if _relay != null:
+		_relay.send({"type": "drop", "id": peer_id})
+	elif _connections.has(peer_id):
 		_forget_peer(peer_id)
 		_drops.append(peer_id)
 
@@ -117,12 +144,105 @@ func _open_room(action: String, code: String) -> void:
 	if not OS.has_feature("web"):
 		status = "Open the Web export to play online."
 		return
+	state = State.REQUESTING
+	status = "Creating room..." if action == "create" else "Looking up room..."
+	if _relay != null:
+		if Platform.relay_url.is_empty():
+			_close("Online play is unavailable in this build.")
+		elif not _relay.start(Platform.relay_url, action, code):
+			_close("Could not reach the signaling server.")
+		return
+	if not ClassDB.class_exists("WebRTCMultiplayerPeer"):
+		_close("Could not start WebRTC.")
+		return
 	var browser := JavaScriptBridge.get_interface("window")
 	_origin = str(browser.location.origin)
 	_url = _origin + "/signal"
-	state = State.REQUESTING
-	status = "Creating room..." if action == "create" else "Looking up room..."
 	_request(action, {"code": code, "version": ROOM_PROTOCOL})
+
+
+func _change_relay_seats(lock: bool, active: Array) -> void:
+	if _relay.send({"type": "seats", "lock": lock, "active": active}):
+		_seat_inflight = "lock" if lock else "open"
+	else:
+		_close("The room connection closed.", true)
+
+
+func _on_relay_disconnected() -> void:
+	if state != State.IDLE:
+		var message := "Could not reach the signaling server." if state == State.REQUESTING \
+			else "The room connection closed."
+		_close(message, true)
+
+
+func _on_backgrounded() -> void:
+	if state != State.IDLE:
+		_close("The room connection closed.", true)
+
+
+func _on_relay_message(message: Dictionary) -> void:
+	match message.get("type"):
+		"admitted":
+			if state != State.REQUESTING:
+				return
+			room_code = str(message["code"])
+			_relay_id = int(message["id"])
+			match _relay_id:
+				HOST_ID:
+					state = State.HOST
+					status = "Share the room code with your squad."
+					hosted.emit()
+				0:
+					state = State.SPECTATOR
+					status = "Connecting to the spectator feed..."
+				_:
+					state = State.CLIENT
+					status = "Connected. Waiting for the host to start."
+		"error":
+			_close(str(message.get("error", "The room request failed.")), true)
+		"peer_joined":
+			if state == State.HOST:
+				peer_joined.emit(int(message["id"]))
+		"peer_left":
+			if state == State.HOST:
+				peer_left.emit(int(message["id"]))
+		"viewers":
+			viewer_count = int(message["count"])
+		"seats":
+			var locking := _seat_inflight == "lock"
+			_seat_inflight = ""
+			players_locked = message["locked"]
+			if locking and players_locked and state == State.HOST:
+				combat_seats_locked.emit()
+		"input":
+			var direction := Vector2(message["x"], message["y"])
+			if state == State.HOST and direction.is_finite():
+				input_received.emit(int(message["id"]), direction.limit_length())
+		"choice":
+			if state == State.HOST:
+				choice_received.emit(int(message["id"]), int(message["action"]),
+					int(message["slot"]), int(message["revision"]))
+		"profile":
+			if state == State.CLIENT:
+				var profile: Variant = _decode_relay_data(message)
+				if profile is Dictionary:
+					profile_received.emit(profile)
+		"snapshot":
+			if state in [State.CLIENT, State.SPECTATOR]:
+				_on_relay_frame(_decode_relay_data(message))
+
+
+func _decode_relay_data(message: Dictionary) -> Variant:
+	var encoded: Variant = message.get("data")
+	return bytes_to_var(Marshalls.base64_to_raw(encoded)) if encoded is String else null
+
+
+func _on_relay_frame(frame: Variant) -> void:
+	if frame is Array and frame.size() == 5 and frame[0] is PackedInt32Array and frame[1] is float \
+			and frame[2] is PackedFloat32Array and frame[3] is PackedFloat32Array and frame[4] is PackedFloat32Array:
+		snapshot_received.emit(frame[0], frame[1], frame[2], frame[3], frame[4])
+		if state == State.SPECTATOR:
+			status = "Live spectator feed"
 
 
 func _request(action: String, data: Dictionary) -> void:
@@ -193,9 +313,9 @@ func _on_reply(result: int, response: int, _headers: PackedStringArray,
 	_token = str(data["token"])
 	room_code = str(data["code"])
 	_ice_servers = data.get("iceServers", [])
-	_rtc = WebRTCMultiplayerPeer.new()
+	_rtc = ClassDB.instantiate("WebRTCMultiplayerPeer")
 	var is_host := action == "create"
-	var error := _rtc.create_server() if is_host else _rtc.create_client(int(data["id"]))
+	var error: Error = _rtc.create_server() if is_host else _rtc.create_client(int(data["id"]))
 	if error != OK:
 		_close("Could not start WebRTC.", true)
 		return
@@ -212,7 +332,7 @@ func _on_reply(result: int, response: int, _headers: PackedStringArray,
 
 
 func _add_connection(peer_id: int) -> bool:
-	var connection := WebRTCPeerConnection.new()
+	var connection = ClassDB.instantiate("WebRTCPeerConnection")
 	if connection.initialize({"iceServers": _ice_servers}) != OK:
 		return false
 	connection.session_description_created.connect(_on_local_sdp.bind(peer_id))
@@ -234,7 +354,7 @@ func _handle_event(event: Dictionary) -> void:
 				if not _add_connection(peer_id):
 					_fail_peer(peer_id)
 					return
-				var connection: WebRTCPeerConnection = _connections[peer_id]
+				var connection = _connections[peer_id]
 				if connection.create_offer() != OK:
 					_fail_peer(peer_id)
 		"peer_left":
@@ -246,7 +366,7 @@ func _handle_event(event: Dictionary) -> void:
 
 
 func _on_local_sdp(kind: String, sdp: String, peer_id: int) -> void:
-	var connection: WebRTCPeerConnection = _connections.get(peer_id)
+	var connection = _connections.get(peer_id)
 	if connection == null:
 		return
 	if connection.set_local_description(kind, sdp) != OK:
@@ -262,7 +382,7 @@ func _on_local_ice(media: String, index: int, candidate: String, peer_id: int) -
 
 
 func _receive_sdp(peer_id: int, event: Dictionary) -> void:
-	var connection: WebRTCPeerConnection = _connections.get(peer_id)
+	var connection = _connections.get(peer_id)
 	if connection == null or _remote_sdp.has(peer_id):
 		return
 	if connection.set_remote_description(str(event["type"]), str(event["sdp"])) != OK:
@@ -275,7 +395,7 @@ func _receive_sdp(peer_id: int, event: Dictionary) -> void:
 
 
 func _receive_ice(peer_id: int, event: Dictionary) -> void:
-	var connection: WebRTCPeerConnection = _connections.get(peer_id)
+	var connection = _connections.get(peer_id)
 	if connection == null:
 		return
 	# Candidates can arrive before the remote description is handed to the browser.
@@ -299,10 +419,14 @@ func _on_peer_connected(peer_id: int) -> void:
 	if state == State.HOST:
 		_deadlines.erase(peer_id)
 		status = "Squadmate connected."
+		peer_joined.emit(peer_id)
 
 
 func _on_peer_disconnected(peer_id: int) -> void:
-	if state == State.HOST and _connections.has(peer_id):
+	if state != State.HOST:
+		return
+	peer_left.emit(peer_id)
+	if _connections.has(peer_id):
 		# The multiplayer peer may be iterating its connections during the signal.
 		_drop_disconnected.call_deferred(peer_id)
 
@@ -333,7 +457,7 @@ func _fail_peer(peer_id: int) -> void:
 
 
 func _forget_peer(peer_id: int) -> void:
-	var connection: WebRTCPeerConnection = _connections.get(peer_id)
+	var connection = _connections.get(peer_id)
 	_connections.erase(peer_id)
 	_deadlines.erase(peer_id)
 	_remote_sdp.erase(peer_id)
@@ -348,6 +472,9 @@ func _close(message: String, unexpected := false) -> void:
 	if not _token.is_empty():
 		_notify_leave()
 	state = State.IDLE
+	if _relay != null:
+		_relay.stop()
+		_relay_id = HOST_ID
 	_feed.stop()
 	_http.cancel_request()
 	_action = ""
@@ -355,7 +482,7 @@ func _close(message: String, unexpected := false) -> void:
 	if _rtc != null:
 		_rtc.close()
 		_rtc = null
-	for connection: WebRTCPeerConnection in _connections.values():
+	for connection in _connections.values():
 		connection.close()
 	_connections.clear()
 	_deadlines.clear()
@@ -390,13 +517,21 @@ func _notify_leave() -> void:
 
 
 func send_input(direction: Vector2) -> void:
-	if state == State.CLIENT and _data_channels_open(HOST_ID):
+	if state != State.CLIENT:
+		return
+	if _relay != null:
+		_relay.send({"type": "input", "x": direction.x, "y": direction.y}, true)
+	elif _data_channels_open(HOST_ID):
 		_receive_input.rpc_id(HOST_ID, direction)
 
 
 func send_snapshot(info: PackedInt32Array, time_left: float, roster: PackedFloat32Array,
 		horde: PackedFloat32Array, world: PackedFloat32Array) -> void:
 	if state == State.HOST:
+		if _relay != null:
+			var frame := Marshalls.raw_to_base64(var_to_bytes([info, time_left, roster, horde, world]))
+			_relay.send({"type": "snapshot", "data": frame}, true)
+			return
 		for peer_id: int in multiplayer.get_peers():
 			if _data_channels_open(peer_id):
 				_apply_snapshot.rpc_id(peer_id, info, time_left, roster, horde, world)
@@ -421,23 +556,30 @@ func _spectator_closed(message: String) -> void:
 
 
 func send_choice(action: int, slot: int, revision: int) -> void:
-	if state == State.CLIENT and _data_channels_open(HOST_ID):
+	if state != State.CLIENT:
+		return
+	if _relay != null:
+		_relay.send({"type": "choice", "action": action, "slot": slot, "revision": revision})
+	elif _data_channels_open(HOST_ID):
 		_receive_choice.rpc_id(HOST_ID, action, slot, revision)
 
 
 func send_profile(peer_id: int, profile: Dictionary) -> bool:
-	if state != State.HOST or not _data_channels_open(peer_id):
+	if state != State.HOST:
 		return false
-	return rpc_id(peer_id, &"_apply_profile", profile) == OK
+	if _relay != null:
+		var encoded := Marshalls.raw_to_base64(var_to_bytes(profile))
+		return _relay.send({"type": "profile", "id": peer_id, "data": encoded})
+	return _data_channels_open(peer_id) and rpc_id(peer_id, &"_apply_profile", profile) == OK
 
 
 func _data_channels_open(peer_id: int) -> bool:
 	if not _rtc.has_peer(peer_id):
 		return false
-	var peer := _rtc.get_peer(peer_id)
+	var peer: Dictionary = _rtc.get_peer(peer_id)
 	# A browser can close a channel before Godot emits peer_disconnected.
-	for channel: WebRTCDataChannel in peer["channels"]:
-		if channel.get_ready_state() != WebRTCDataChannel.STATE_OPEN:
+	for channel in peer["channels"]:
+		if channel.get_ready_state() != RTC_CHANNEL_OPEN:
 			return false
 	return peer["connected"]
 

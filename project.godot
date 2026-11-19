@@ -8,6 +8,7 @@ config/features=PackedStringArray("4.3", "GL Compatibility")
 
 [autoload]
 
+Platform="*res://scripts/platform.gd"
 Settings="*res://scripts/settings.gd"
 Network="*res://scripts/network/network.gd"
 

@@ -29,6 +29,9 @@ msgstr "竞技场生存   /   20 波"
 msgid "WASD  MOVE   •   WEAPONS FIRE AUTOMATICALLY"
 msgstr "WASD 移动   ·   武器自动攻击"
 
+msgid "DRAG THE STICK   •   WEAPONS FIRE AUTOMATICALLY"
+msgstr "拖动摇杆移动   ·   武器自动攻击"
+
 msgid "WAVE SURVIVAL   /   SOLO OR CO-OP"
 msgstr "波次生存   /   单人或合作"
 
@@ -142,6 +145,9 @@ msgstr "选择配装"
 
 msgid "COPIED"
 msgstr "已复制"
+
+msgid "INVITE"
+msgstr "邀请"
 
 msgid "CODE  %s  •  COPY"
 msgstr "房间码 %s  ·  复制"
@@ -601,6 +607,12 @@ msgstr "无法连接信令服务器。"
 
 msgid "The room request failed."
 msgstr "房间请求失败。"
+
+msgid "Online play is unavailable in this build."
+msgstr "此版本无法联机。"
+
+msgid "The room connection closed."
+msgstr "房间连接已关闭。"
 
 msgid "Could not open the spectator feed."
 msgstr "无法打开观战直播。"

@@ -1,4 +1,7 @@
 .godot/
 /web/*
 !/web/.gdignore
+/node_modules/
+/dist/*
+!/dist/.gdignore
 *.tmp

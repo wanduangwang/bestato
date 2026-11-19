@@ -4,7 +4,7 @@
 
 ## 试玩
 
-从仓库克隆后，先按下文的导出步骤生成 `web/index.html`。在项目根目录用 Node.js 20 或更高版本运行 `node server/server.mjs`，打开 [本机游戏](http://127.0.0.1:8787)。
+从仓库克隆后，先按下文生成 `web/index.html`。在项目根目录用 Node.js 20 或更高版本运行 `npm ci` 和 `npm start`，打开 [本机游戏](http://127.0.0.1:8787)。
 
 - **语言和音效**可在右上角切换。首次默认为 English，切换后即时生效。网页保留当前标签页的设置供刷新时使用，最近保存的偏好作为新标签页的默认值。桌面版将偏好保存在 `user://settings.cfg`。
 - **单机**：点 **Deploy Solo**，选择角色和初始武器，再点 **Deploy**。
@@ -21,7 +21,8 @@
 
 ```powershell
 godot --headless --path . --export-release Web web/index.html
-node server/server.mjs
+npm ci
+npm start
 ```
 
 | 路径 | 职责 |
@@ -33,11 +34,26 @@ node server/server.mjs
 | `scripts/game/arena.gd`、`waves.gd` | 房主权威的战斗、波次、掉落与结算 |
 | `scripts/game/player.gd`、`enemy.gd`、`world_view.gd`、`sounds.gd` | 角色状态、敌人行为、效果与程序音效 |
 | `scripts/network/` | WebRTC 战斗同步、房间信令和只读观战流 |
+| `scripts/platform.gd`、`platform/wechat/` | 触屏能力、微信存储、房间码输入和分享 |
 | `scripts/ui/interface.gd` | 菜单、角色选择、HUD、升级与个人商店 |
 | `scripts/settings.gd`、`i18n/zh_CN.po` | 本地偏好及简体中文译文 |
 | `server/server.mjs` | 同源网页托管与房间信令 |
+| `server/wechat-relay.mjs` | 微信 WebSocket 房间、锁席和只读观战 |
 
 简体中文界面使用 Bestato UI 字体。它是 Noto Sans CJK SC Regular 2.004 的界面用字子集，随附 [SIL OFL 1.1 许可证](assets/fonts/OFL-NotoSansCJK.txt)。新增译文时需确认字体涵盖所用字符。[Noto CJK 字体源](https://github.com/notofonts/noto-cjk/tree/Sans2.004/Sans)
+
+## 微信小游戏构建
+
+在 PowerShell 7 用官方 Godot 4.6.3 的控制台程序执行构建脚本。脚本校验导出工具和兼容模板的 SHA-256，在临时工程中打包，输出到 `dist/wechat`。这个目录是微信开发者工具的导入路径，默认使用测试 AppID 生成单人预览包。正式联机体验包使用自己的小游戏 AppID 和已配置的 WSS 域名。[微信版开发方案](docs/wechat-minigame-plan.md)
+
+```powershell
+./tools/build-wechat.ps1 -Godot 'C:/path/to/Godot_v4.6.3-stable_win64_console.exe'
+./tools/build-wechat.ps1 -Godot 'C:/path/to/Godot_v4.6.3-stable_win64_console.exe' -AppId 'wx0123456789abcdef' -RelayUrl 'wss://game.example.com/wechat-room'
+```
+
+启动 `npm start` 后，反向代理将 HTTPS/WSS 域名的 `/wechat-room` 和 WebSocket 升级请求转给 Node。开发者在小游戏后台的开发设置中登记该 WSS 域名。手机端用摇杆移动，房主可从大厅分享房间码。房间分享只包含房间码，打开后从菜单选择参加或观战。只读观战和战斗席由服务器分别管理。[微信网络配置](https://developers.weixin.qq.com/minigame/dev/guide/base-ability/network.html)
+
+浏览器 localhost 预览加 `?relay=1` 可验证同一套房间中继逻辑。默认网页入口使用 WebRTC，两个入口使用各自的房间。真机体验版通过微信开发者工具扫码验收。
 
 ## 联机部署
 
@@ -67,5 +83,5 @@ node server/server.mjs
 
 ```powershell
 godot --headless --path . --script tests/balance_test.gd
-node --test tests/rooms.test.mjs
+npm test
 ```

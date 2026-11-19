@@ -7,6 +7,7 @@ const Balance = preload("res://scripts/game/balance.gd")
 const Player = preload("res://scripts/game/player.gd")
 const Enemy = preload("res://scripts/game/enemy.gd")
 const Waves = preload("res://scripts/game/waves.gd")
+const TouchStick = preload("res://scripts/ui/touch_stick.gd")
 const Phase = Waves.Phase
 const Action = Build.Action
 
@@ -27,6 +28,8 @@ var _menu: Control
 var _hud: Control
 var _overlay: Panel
 var _join_code: LineEdit
+var _move_hint: Label
+var _stick: TouchStick
 var _solo_button: Button
 var _host_button: Button
 var _join_button: Button
@@ -53,6 +56,10 @@ var _inspect := false
 
 func _ready() -> void:
 	Settings.language_changed.connect(_build_interface)
+	Platform.backgrounded.connect(_cancel_touch)
+	Platform.touch_changed.connect(_update_move_hint)
+	Platform.invite_received.connect(_show_invite)
+	get_viewport().size_changed.connect(_fit_safe_area)
 	_build_interface()
 
 
@@ -60,6 +67,7 @@ func _build_interface() -> void:
 	var code := ""
 	if is_instance_valid(_root):
 		code = _join_code.text
+		_stick.set_active(false)
 		_root.hide()
 		_root.queue_free()
 		_overlay = null
@@ -73,8 +81,12 @@ func _build_interface() -> void:
 		_root.theme = theme
 	add_child(_root)
 	_build_menu()
-	_join_code.text = code
+	_join_code.text = Platform.pending_invite if code.is_empty() else code
 	_build_hud()
+	_stick = TouchStick.new()
+	_stick.position = Vector2(128, 554)
+	_stick.direction_changed.connect(func(direction: Vector2) -> void: arena.touch_movement = direction)
+	_root.add_child(_stick)
 	var language := _button(_root, "中文" if Settings.language == "en" else "EN",
 		Rect2(850, 20, 68, 40), DARK, PAPER, 14)
 	language.add_theme_font_override("font", Settings.cjk_font)
@@ -84,7 +96,29 @@ func _build_interface() -> void:
 	_mute.pressed.connect(Settings.toggle_sound)
 	_leave_button = _button(_root, "EXIT", Rect2(1007, 20, 87, 40))
 	_leave_button.pressed.connect(_leave)
+	_fit_safe_area()
 	_process(0.0)
+
+
+func _fit_safe_area() -> void:
+	var area := Platform.safe_rect()
+	var ratio := minf(area.size.x / Platform.DESIGN_SIZE.x, area.size.y / Platform.DESIGN_SIZE.y)
+	_root.scale = Vector2.ONE * ratio
+	_root.position = area.get_center() - Platform.DESIGN_SIZE * ratio * 0.5
+
+
+func _cancel_touch() -> void:
+	_stick.cancel()
+
+
+func _show_invite(code: String) -> void:
+	if Network.state == Network.State.IDLE and not arena.solo:
+		_join_code.text = code
+
+
+func _update_move_hint() -> void:
+	_move_hint.text = tr("DRAG THE STICK   •   WEAPONS FIRE AUTOMATICALLY") if Platform.touch_enabled \
+		else tr("WASD  MOVE   •   WEAPONS FIRE AUTOMATICALLY")
 
 
 func _build_menu() -> void:
@@ -93,7 +127,8 @@ func _build_menu() -> void:
 	_mount(_menu, _root, Rect2(0, 0, 1120, 720))
 	_label(_menu, "bestato", Rect2(27, 18, 450, 46), 29, PAPER)
 	_label(_menu, "ARENA SURVIVAL   /   20 WAVES", Rect2(569, 24, 275, 35), 16, GOLD)
-	_label(_menu, "WASD  MOVE   •   WEAPONS FIRE AUTOMATICALLY", Rect2(27, 672, 700, 28), 14, MUTED)
+	_move_hint = _label(_menu, "", Rect2(27, 672, 700, 28), 14, MUTED)
+	_update_move_hint()
 	var card := _panel(_menu, Rect2(53, 106, 498, 527))
 	_label(card, "WAVE SURVIVAL   /   SOLO OR CO-OP", Rect2(26, 21, 445, 28), 15, GOLD)
 	var title_size := 48 if Settings.language == "zh_CN" else 61
@@ -115,6 +150,9 @@ func _build_menu() -> void:
 	_join_code.add_theme_stylebox_override("normal", _style(DARK, LINE, 5))
 	_join_code.add_theme_stylebox_override("focus", _style(DARK, LIME, 5))
 	_mount(_join_code, card, Rect2(172, 404, 102, 46))
+	if Platform.wechat:
+		_join_code.virtual_keyboard_enabled = false
+		_join_code.focus_entered.connect(Platform.open_room_keyboard.bind(_join_code))
 	_join_code.text_submitted.connect(func(_text: String) -> void: _join())
 	_join_button = _button(card, "JOIN", Rect2(285, 404, 78, 46))
 	_join_button.pressed.connect(_join)
@@ -188,6 +226,8 @@ func _process(_delta: float) -> void:
 	if not in_menu:
 		_update_hud()
 	var phase := arena.waves.phase
+	var local_player: Player = arena.players.get(Network.local_id()) if not in_menu and not watching else null
+	_stick.set_active(Platform.touch_enabled and phase == Phase.WAVE and local_player != null and local_player.hp > 0)
 	if phase != Phase.SHOP:
 		_inspect = false
 	var show_panel := not in_menu and phase != Phase.WAVE
@@ -211,7 +251,7 @@ func _update_hud() -> void:
 	_bag.visible = not watching
 	_watch_status.visible = watching
 	var profile := arena.local_profile
-	var my_id := multiplayer.get_unique_id()
+	var my_id := Network.local_id()
 	var player: Player = arena.players.get(my_id)
 	if watching:
 		_hp.text = tr("SPECTATING")
@@ -317,8 +357,13 @@ func _loadout(profile: Dictionary) -> void:
 	var origin: Dictionary = Catalog.ORIGINS[own_origin]
 	_label(_overlay, "CHOOSE YOUR LOADOUT", Rect2(24, 18, 688, 44), 31)
 	if online:
+		var copy_rect := Rect2(735, 19, 235, 41)
+		if Platform.wechat:
+			copy_rect = Rect2(629, 19, 210, 41)
+			var invite := _button(_overlay, "INVITE", Rect2(849, 19, 121, 41), LIME, DARK)
+			invite.pressed.connect(Platform.share_room.bind(Network.room_code))
 		var copy := _button(_overlay, "COPIED" if _copied else tr("CODE  %s  •  COPY") % Network.room_code,
-			Rect2(735, 19, 235, 41))
+			copy_rect)
 		copy.pressed.connect(_copy_code)
 	_label(_overlay, "01   CHARACTER", Rect2(25, 75, 898, 26), 14, GOLD)
 	for i in range(Catalog.ORIGINS.size()):
@@ -603,7 +648,7 @@ func _leave() -> void:
 
 
 func _copy_code() -> void:
-	DisplayServer.clipboard_set(Network.room_code)
+	Platform.copy_room(Network.room_code)
 	_copied = true
 	_overlay_key = ""
 
@@ -669,5 +714,8 @@ func _button(parent: Control, value: String, rect: Rect2, fill := DARK, ink := P
 	button.add_theme_stylebox_override("hover", _style(fill.lightened(0.13), LIME, 5))
 	button.add_theme_stylebox_override("pressed", _style(fill.darkened(0.13), LIME, 5))
 	button.add_theme_stylebox_override("disabled", _style(DARK, LINE.darkened(0.18), 5))
+	if Platform.touch_enabled and rect.size.y < 44.0:
+		var extra := (44.0 - rect.size.y) * 0.5
+		rect = rect.grow_individual(0.0, extra, 0.0, extra)
 	_mount(button, parent, rect)
 	return button

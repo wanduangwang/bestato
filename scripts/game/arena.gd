@@ -45,6 +45,7 @@ var waves := Waves.new()
 var players: Dictionary = {}
 var enemies: Dictionary = {}
 var local_profile: Dictionary = {}
+var touch_movement := Vector2.ZERO
 var solo := false
 var sounds: Sounds
 
@@ -78,8 +79,8 @@ func _ready() -> void:
 	Network.snapshot_received.connect(_receive_snapshot)
 	Network.choice_received.connect(_apply_action)
 	Network.profile_received.connect(_receive_profile)
-	multiplayer.peer_connected.connect(_peer_joined)
-	multiplayer.peer_disconnected.connect(_peer_left)
+	Network.peer_joined.connect(_peer_joined)
+	Network.peer_left.connect(_peer_left)
 
 
 func open_solo() -> void:
@@ -260,6 +261,7 @@ func _reset_world() -> void:
 	_clear_combat()
 	_profile_queue.clear()
 	local_profile = {}
+	touch_movement = Vector2.ZERO
 	solo = false
 	waves = Waves.new()
 	_material_cursor = 0
@@ -285,7 +287,7 @@ func _clear_combat() -> void:
 func _add_player(peer_id: int) -> Player:
 	var player: Player = PLAYER_SCENE.instantiate()
 	player.peer_id = peer_id
-	player.is_local = solo or (Network.state != Network.State.SPECTATOR and peer_id == multiplayer.get_unique_id())
+	player.is_local = solo or (Network.state != Network.State.SPECTATOR and peer_id == Network.local_id())
 	player.is_replica = not _is_authority()
 	player.z_index = 2
 	player.position = _player_spawn(peer_id)
@@ -320,7 +322,8 @@ func _is_authority() -> bool:
 
 
 func _movement() -> Vector2:
-	return Input.get_vector("move_left", "move_right", "move_up", "move_down")
+	var keyboard := Input.get_vector("move_left", "move_right", "move_up", "move_down")
+	return touch_movement if keyboard.is_zero_approx() else keyboard
 
 
 func _record_input(peer_id: int, direction: Vector2) -> void:
